@@ -38,7 +38,7 @@ export interface HistoryLog {
   id: string;
   entityType: 'CASE' | 'RESULT';
   entityId: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'EXECUTE'; // [MODIFIED] Added EXECUTE
   modifierId: string;
   modifierName: string; // Denormalized for display
   changes: {
@@ -83,6 +83,7 @@ export interface TestResult {
   testerId: string;
   timestamp: string;
   images?: string[]; // Base64 or URLs
+  stepResults?: { stepId: string; status: TestStatus }[]; // [NEW] Individual step status
 }
 
 // For UI State

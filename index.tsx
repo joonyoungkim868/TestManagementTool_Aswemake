@@ -1134,15 +1134,18 @@ const TestCaseManager = ({ project }: { project: Project }) => {
                     <p className="text-sm text-gray-400">변경 이력이 없습니다.</p>
                   ) : (
                     historyLogs.map(log => (
-                      <div key={log.id} className="text-sm border-l-2 border-gray-300 pl-3">
+                      <div key={log.id} className={`text-sm border-l-2 pl-3 ${log.action === 'EXECUTE' ? 'border-blue-400 bg-blue-50 py-2 rounded-r' : 'border-gray-300'}`}>
                         <div className="flex justify-between text-gray-500">
-                          <span><span className="font-semibold text-gray-700">{log.modifierName}</span> 님이 {log.action === 'CREATE' ? '생성함' : log.action === 'UPDATE' ? '수정함' : '삭제함'}</span>
+                          <span>
+                            <span className="font-semibold text-gray-700">{log.modifierName}</span> 님이 
+                            {log.action === 'CREATE' ? ' 생성함' : log.action === 'UPDATE' ? ' 수정함' : log.action === 'EXECUTE' ? ' 테스트 수행' : ' 삭제함'}
+                          </span>
                           <span>{new Date(log.timestamp).toLocaleString('ko-KR')}</span>
                         </div>
                         <ul className="mt-1 list-disc list-inside text-gray-600">
                           {log.changes.map((c, i) => (
                              <li key={i}>
-                               <b>{c.field}</b> 변경: <span className="line-through text-gray-400">{JSON.stringify(c.oldVal)}</span> &rarr; <span className="text-green-600">{JSON.stringify(c.newVal)}</span>
+                               <span className="font-medium">{c.field}</span>: <span className="line-through text-gray-400">{JSON.stringify(c.oldVal)}</span> &rarr; <span className={log.action === 'EXECUTE' ? 'text-blue-700 font-semibold' : 'text-green-600'}>{JSON.stringify(c.newVal)}</span>
                              </li>
                           ))}
                         </ul>
@@ -1196,6 +1199,10 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [formActual, setFormActual] = useState('');
   const [formComment, setFormComment] = useState('');
+  
+  // [NEW] Step Status & Form Status State
+  const [stepStatuses, setStepStatuses] = useState<Record<string, TestStatus>>({});
+  const [formStatus, setFormStatus] = useState<TestStatus>('UNTESTED');
 
   // Run Create Modal
   const [isRunModalOpen, setRunModalOpen] = useState(false);
@@ -1223,14 +1230,53 @@ const TestRunner = ({ project }: { project: Project }) => {
     }
   }, [activeRun, project]);
 
-  // When switching cases in execution mode, reset form
+  // When switching cases in execution mode, reset form and load step statuses
   useEffect(() => {
     if (activeCaseId && activeRun) {
        const existingResult = runResults.find(r => r.caseId === activeCaseId);
        setFormActual(existingResult?.actualResult || '');
        setFormComment(existingResult?.comment || '');
+       setFormStatus(existingResult?.status || 'UNTESTED');
+       
+       // Load step statuses into map
+       if (existingResult?.stepResults) {
+         const statusMap: Record<string, TestStatus> = {};
+         existingResult.stepResults.forEach(sr => {
+           statusMap[sr.stepId] = sr.status;
+         });
+         setStepStatuses(statusMap);
+       } else {
+         setStepStatuses({});
+       }
     }
   }, [activeCaseId, activeRun, runResults]);
+
+  // [NEW] Auto-calculate overall status when steps change
+  useEffect(() => {
+    const statuses = Object.values(stepStatuses);
+    if (statuses.length === 0) return;
+
+    let computed: TestStatus = 'PASS';
+    
+    // Priority: FAIL > BLOCK > RETEST > PASS
+    if (statuses.includes('FAIL')) computed = 'FAIL';
+    else if (statuses.includes('BLOCK')) computed = 'BLOCK';
+    else if (statuses.includes('RETEST')) computed = 'RETEST';
+    else if (statuses.includes('NA')) {
+       // If all are NA, then NA. If some PASS and some NA, usually PASS or NA.
+       // Simplifying: if mixed with PASS, keep PASS unless all are NA
+       const allNa = statuses.every(s => s === 'NA');
+       computed = allNa ? 'NA' : 'PASS';
+    } else if (statuses.every(s => s === 'PASS')) computed = 'PASS';
+    else computed = 'UNTESTED';
+
+    // Only update form status if it's different to avoid loops/overwrites on manual change
+    // But since we want "auto follow", we force update. 
+    // User can manually change the dropdown *after* this effect runs if they really want.
+    if (statuses.length > 0) {
+       setFormStatus(computed);
+    }
+  }, [stepStatuses]);
 
   const handleCreateRun = (title: string, caseIds: string[]) => {
     const newRun = RunService.create({
@@ -1260,16 +1306,27 @@ const TestRunner = ({ project }: { project: Project }) => {
     setExecutionMode(true);
   };
 
-  const submitResult = (status: TestStatus, autoNext: boolean = false) => {
+  const updateStepStatus = (stepId: string, status: TestStatus) => {
+    setStepStatuses(prev => ({
+      ...prev,
+      [stepId]: status
+    }));
+  };
+
+  const submitResult = (autoNext: boolean = false) => {
     if (!activeCaseId || !activeRun || !user) return;
     
+    // Convert step map to array
+    const stepResultsArray = Object.entries(stepStatuses).map(([stepId, status]) => ({ stepId, status }));
+
     RunService.saveResult({
       runId: activeRun.id,
       caseId: activeCaseId,
-      status,
+      status: formStatus, // Use the form status (which might be auto-calc or manual)
       actualResult: formActual,
       comment: formComment,
-      testerId: user.id
+      testerId: user.id,
+      stepResults: stepResultsArray
     });
 
     // Refresh results locally
@@ -1433,6 +1490,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                                 <th className="border p-2 w-12 text-center">#</th>
                                 <th className="border p-2 text-left">수행 절차 (Action)</th>
                                 <th className="border p-2 text-left">기대 결과 (Expected)</th>
+                                <th className="border p-2 w-28 text-center">Step Status</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1441,6 +1499,24 @@ const TestRunner = ({ project }: { project: Project }) => {
                                   <td className="border p-2 text-center text-gray-500">{i+1}</td>
                                   <td className="border p-2 whitespace-pre-wrap">{s.step}</td>
                                   <td className="border p-2 whitespace-pre-wrap">{s.expected}</td>
+                                  <td className="border p-2 text-center">
+                                    <select 
+                                      className={`text-xs p-1 rounded border font-semibold ${
+                                        stepStatuses[s.id] === 'PASS' ? 'text-green-600 bg-green-50 border-green-200' :
+                                        stepStatuses[s.id] === 'FAIL' ? 'text-red-600 bg-red-50 border-red-200' :
+                                        'text-gray-600'
+                                      }`}
+                                      value={stepStatuses[s.id] || ''}
+                                      onChange={(e) => updateStepStatus(s.id, e.target.value as TestStatus)}
+                                    >
+                                      <option value="">(선택)</option>
+                                      <option value="PASS">PASS</option>
+                                      <option value="FAIL">FAIL</option>
+                                      <option value="BLOCK">BLOCK</option>
+                                      <option value="RETEST">RETEST</option>
+                                      <option value="NA">N/A</option>
+                                    </select>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1449,8 +1525,34 @@ const TestRunner = ({ project }: { project: Project }) => {
                      </div>
 
                      {/* Result Entry Form */}
-                     <div className="bg-white p-6 rounded shadow-lg border border-blue-100 relative">
-                        <h3 className="font-bold text-lg mb-4 text-gray-800">결과 입력</h3>
+                     <div className={`bg-white p-6 rounded shadow-lg border-2 relative transition-colors ${
+                       formStatus === 'PASS' ? 'border-green-400' :
+                       formStatus === 'FAIL' ? 'border-red-400' :
+                       formStatus === 'BLOCK' ? 'border-gray-600' :
+                       'border-blue-100'
+                     }`}>
+                        <div className="flex justify-between items-center mb-4">
+                           <h3 className="font-bold text-lg text-gray-800">결과 저장 (Result Submission)</h3>
+                           <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-600">최종 상태:</span>
+                              <select 
+                                className={`font-bold p-2 rounded border ${
+                                  formStatus === 'PASS' ? 'bg-green-100 text-green-700 border-green-300' :
+                                  formStatus === 'FAIL' ? 'bg-red-100 text-red-700 border-red-300' :
+                                  'bg-white text-gray-700'
+                                }`}
+                                value={formStatus}
+                                onChange={(e) => setFormStatus(e.target.value as TestStatus)}
+                              >
+                                <option value="UNTESTED">미수행 (Untested)</option>
+                                <option value="PASS">성공 (Pass)</option>
+                                <option value="FAIL">실패 (Fail)</option>
+                                <option value="BLOCK">차단됨 (Block)</option>
+                                <option value="RETEST">재확인 (Retest)</option>
+                                <option value="NA">해당없음 (N/A)</option>
+                              </select>
+                           </div>
+                        </div>
                         
                         <div className="flex gap-4 mb-4">
                           <div className="flex-1">
@@ -1473,26 +1575,19 @@ const TestRunner = ({ project }: { project: Project }) => {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-4 border-t">
-                           <div className="flex gap-2">
-                              <button onClick={() => submitResult('PASS', false)} className="px-4 py-2 bg-white border border-green-200 text-green-700 hover:bg-green-50 rounded font-medium">성공 저장</button>
-                              <button onClick={() => submitResult('FAIL', false)} className="px-4 py-2 bg-white border border-red-200 text-red-700 hover:bg-red-50 rounded font-medium">실패 저장</button>
-                           </div>
-
-                           <div className="flex gap-3">
-                              <button 
-                                onClick={() => submitResult('PASS', true)} 
-                                className="px-6 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 font-bold flex items-center gap-2"
-                              >
-                                <CheckCircle size={18} /> 성공 & 다음 (Pass & Next)
-                              </button>
-                              <button 
-                                onClick={() => submitResult('FAIL', true)} 
-                                className="px-6 py-2 bg-red-600 text-white rounded shadow hover:bg-red-700 font-bold flex items-center gap-2"
-                              >
-                                <XCircle size={18} /> 실패 & 다음 (Fail & Next)
-                              </button>
-                           </div>
+                        <div className="flex items-center justify-end pt-4 border-t gap-3">
+                           <button 
+                             onClick={() => submitResult(false)} 
+                             className="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded font-medium flex items-center gap-2"
+                           >
+                             <Save size={18} /> 저장 (Save)
+                           </button>
+                           <button 
+                             onClick={() => submitResult(true)} 
+                             className="px-6 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 font-bold flex items-center gap-2"
+                           >
+                             <Play size={18} fill="currentColor"/> 저장 & 다음 (Save & Next)
+                           </button>
                         </div>
                      </div>
                   </div>

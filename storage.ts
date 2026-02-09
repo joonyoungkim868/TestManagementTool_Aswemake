@@ -179,6 +179,7 @@ export const TestCaseService = {
       if (JSON.stringify(oldCase.steps) !== JSON.stringify(newCase.steps)) {
          changes.push({ field: '테스트 단계(Steps)', oldVal: '이전 단계', newVal: '단계 변경됨' });
       }
+      if (oldCase.type !== newCase.type) changes.push({ field: '유형(Type)', oldVal: oldCase.type, newVal: newCase.type });
       
       if (changes.length > 0) {
         HistoryService.log({
@@ -297,15 +298,89 @@ export const RunService = {
   getResults: (runId: string): TestResult[] => {
     return getItems<TestResult>(STORAGE_KEYS.RESULTS).filter(r => r.runId === runId);
   },
+  
+  // [MODIFIED] Save result with History Tracking
   saveResult: (result: Omit<TestResult, 'id' | 'timestamp'>) => {
-    // [DB_MIGRATION]: POST /api/results
     const results = getItems<TestResult>(STORAGE_KEYS.RESULTS);
-    // 기존 결과 덮어쓰기 로직
-    const filtered = results.filter(r => !(r.runId === result.runId && r.caseId === result.caseId));
+    const runs = getItems<TestRun>(STORAGE_KEYS.RUNS);
+    const users = getItems<User>(STORAGE_KEYS.USERS);
     
-    const newResult = { ...result, id: generateId(), timestamp: now() };
-    filtered.push(newResult);
-    saveItems(STORAGE_KEYS.RESULTS, filtered);
+    // Find context info
+    const runInfo = runs.find(r => r.id === result.runId);
+    const tester = users.find(u => u.id === result.testerId);
+    const runTitle = runInfo ? runInfo.title : 'Unknown Run';
+    const testerName = tester ? tester.name : 'Unknown Tester';
+
+    // Find previous result for Diff
+    const existingIndex = results.findIndex(r => r.runId === result.runId && r.caseId === result.caseId);
+    const oldResult = existingIndex > -1 ? results[existingIndex] : null;
+
+    // Diff Calculation
+    const changes: HistoryLog['changes'] = [];
+
+    // 1. Status Change
+    const oldStatus = oldResult ? oldResult.status : 'UNTESTED';
+    if (oldStatus !== result.status) {
+      changes.push({ field: `상태(${runTitle})`, oldVal: oldStatus, newVal: result.status });
+    }
+
+    // 2. Actual Result Change
+    const oldActual = oldResult ? oldResult.actualResult : '';
+    if (oldActual !== result.actualResult && (oldActual || result.actualResult)) {
+      changes.push({ field: '실제결과', oldVal: oldActual, newVal: result.actualResult });
+    }
+
+    // 3. Comment Change
+    const oldComment = oldResult ? oldResult.comment : '';
+    if (oldComment !== result.comment && (oldComment || result.comment)) {
+      changes.push({ field: '코멘트', oldVal: oldComment, newVal: result.comment });
+    }
+
+    // 4. Step Status Changes
+    if (result.stepResults) {
+      const oldStepsMap = new Map<string, string>();
+      if (oldResult?.stepResults) {
+        oldResult.stepResults.forEach(s => oldStepsMap.set(s.stepId, s.status));
+      }
+
+      result.stepResults.forEach(newStep => {
+        const oldStepStatus = oldStepsMap.get(newStep.stepId);
+        if (oldStepStatus && oldStepStatus !== newStep.status) {
+          // Log only if changed. We use step index or ID? Since we don't have easy step index here, we just say "Step Changed"
+          // Or we can try to find step index if we loaded the case. But for simplicity:
+          changes.push({ field: '단계별 상태', oldVal: oldStepStatus, newVal: newStep.status });
+        } else if (!oldStepStatus && newStep.status) {
+           // First time setting status
+           // changes.push({ field: '단계별 상태', oldVal: 'None', newVal: newStep.status });
+        }
+      });
+    }
+
+    // Save Result (Upsert)
+    const newResult = { ...result, id: oldResult ? oldResult.id : generateId(), timestamp: now() };
+    if (existingIndex > -1) {
+      results[existingIndex] = newResult;
+    } else {
+      results.push(newResult);
+    }
+    saveItems(STORAGE_KEYS.RESULTS, results);
+
+    // Create History Log
+    // Even if no specific fields changed (e.g. just confirmed Pass again), we might want to log execution.
+    // But usually we log only changes. If it's a new result (UNTESTED -> PASS), it has changes.
+    if (changes.length > 0) {
+      HistoryService.log({
+        id: generateId(),
+        entityType: 'RESULT', // Log as RESULT type
+        entityId: result.caseId, // Linked to CASE ID so it shows in Case History
+        action: 'EXECUTE',
+        modifierId: result.testerId,
+        modifierName: testerName,
+        changes: changes,
+        timestamp: now()
+      });
+    }
+
     return newResult;
   }
 };
