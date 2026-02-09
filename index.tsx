@@ -2105,7 +2105,7 @@ const App = () => {
         {/* Sidebar */}
         <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col relative z-20">
           {/* Project Switcher Header */}
-          <div className="border-b border-slate-800">
+          <div className="border-b border-slate-800 relative">
              <button 
                onClick={() => setProjectSwitcherOpen(!isProjectSwitcherOpen)}
                className="w-full p-4 flex items-center justify-between hover:bg-slate-800 transition"
