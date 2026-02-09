@@ -1,5 +1,5 @@
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Issue 
 } from './types';
 
 /**
@@ -348,7 +348,18 @@ export const RunService = {
       changes.push({ field: '코멘트', oldVal: oldComment, newVal: result.comment });
     }
 
-    // 4. Step Status Changes
+    // 4. Issue (Defect) Changes [NEW]
+    const oldIssues = oldResult?.issues || [];
+    const newIssues = result.issues || [];
+    if (JSON.stringify(oldIssues) !== JSON.stringify(newIssues)) {
+      changes.push({ 
+        field: '결함(Defects)', 
+        oldVal: `${oldIssues.length}개`, 
+        newVal: `${newIssues.length}개` 
+      });
+    }
+
+    // 5. Step Status Changes
     if (result.stepResults) {
       const oldStepsMap = new Map<string, string>();
       if (oldResult?.stepResults) {

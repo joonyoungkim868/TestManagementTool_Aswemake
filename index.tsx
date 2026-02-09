@@ -4,13 +4,13 @@ import {
   Layout, LayoutDashboard, FolderTree, PlayCircle, Settings, Users, LogOut, 
   Plus, ChevronRight, ChevronDown, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
-  Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List
+  Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List, Trash2, Bug, ExternalLink, BarChart2
 } from 'lucide-react';
 import { 
   AuthService, ProjectService, TestCaseService, RunService, HistoryService 
 } from './storage';
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus, Issue 
 } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
@@ -493,453 +493,168 @@ const RunCreationModal = ({
   );
 };
 
-// Import Modal Component with Column Mapping
-const ImportExportModal = ({ 
-  isOpen, onClose, project, cases, sections, onImportSuccess 
-}: { 
-  isOpen: boolean, onClose: () => void, project: Project, cases: TestCase[], sections: Section[], onImportSuccess: () => void 
+// [NEW] Report Generation Modal
+const ReportModal = ({
+  isOpen, onClose, project
+}: {
+  isOpen: boolean, onClose: () => void, project: Project
 }) => {
-  const { user } = useContext(AuthContext);
-  const [mode, setMode] = useState<'SELECT' | 'MAPPING' | 'PREVIEW'>('SELECT');
-  const [rawRows, setRawRows] = useState<string[][]>([]);
-  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
-  
-  // Mapping State: Internal Field Key -> CSV Column Index
-  const [columnMapping, setColumnMapping] = useState<Record<string, number>>({});
-  
-  const [importData, setImportData] = useState<any[]>([]);
-  const [importErrors, setImportErrors] = useState<string[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [runs, setRuns] = useState<TestRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string>('');
+  const [reportData, setReportData] = useState<{
+    run: TestRun,
+    results: TestResult[],
+    pass: number,
+    fail: number,
+    untested: number,
+    allDefects: { issue: Issue, caseTitle: string }[]
+  } | null>(null);
 
-  const INTERNAL_FIELDS = [
-    { key: 'section', label: '섹션 (Section/Folder)', required: false },
-    { key: 'title', label: '케이스 제목 (Title)', required: true },
-    { key: 'priority', label: '우선순위 (Priority)', required: false },
-    { key: 'type', label: '유형 (Type)', required: false },
-    { key: 'precondition', label: '사전 조건 (Precondition)', required: false },
-    { key: 'step', label: '수행 절차 (Step)', required: false },
-    { key: 'expected', label: '기대 결과 (Expected Result)', required: false },
-  ];
+  useEffect(() => {
+    if (isOpen) {
+      const allRuns = RunService.getAll(project.id);
+      setRuns(allRuns);
+      setSelectedRunId('');
+      setReportData(null);
+    }
+  }, [isOpen, project]);
+
+  useEffect(() => {
+    if (selectedRunId) {
+      const run = runs.find(r => r.id === selectedRunId);
+      if (run) {
+        const results = RunService.getResults(run.id);
+        const pass = results.filter(r => r.status === 'PASS').length;
+        const fail = results.filter(r => r.status === 'FAIL').length;
+        const untested = (run.caseIds?.length || 0) - results.length;
+        
+        // Aggregate all defects from all results
+        const allDefects: { issue: Issue, caseTitle: string }[] = [];
+        const cases = TestCaseService.getCases(project.id);
+        const caseMap = new Map(cases.map(c => [c.id, c.title]));
+
+        results.forEach(res => {
+          if (res.issues && res.issues.length > 0) {
+            res.issues.forEach(issue => {
+              allDefects.push({
+                issue,
+                caseTitle: caseMap.get(res.caseId) || 'Unknown Case'
+              });
+            });
+          }
+        });
+
+        setReportData({ run, results, pass, fail, untested, allDefects });
+      }
+    }
+  }, [selectedRunId, runs, project]);
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result as string;
-      
-      if (file.name.endsWith('.json')) {
-        try {
-          const json = JSON.parse(text);
-          if (Array.isArray(json)) {
-             const mapped = json.map(c => ({
-               ...c,
-               sectionTitle: sections.find(s => s.id === c.sectionId)?.title || 'Imported JSON'
-             }));
-             setImportData(mapped);
-             setMode('PREVIEW');
-          } else {
-             alert("잘못된 JSON 형식입니다.");
-          }
-        } catch (err) { alert("JSON 파싱 오류"); }
-        return;
-      } 
-      
-      // CSV Logic
-      const rows = parseCSV(text);
-      if (rows.length < 2) {
-        alert("데이터가 없는 CSV 파일입니다.");
-        return;
-      }
-
-      const headers = rows[0];
-      setCsvHeaders(headers);
-      setRawRows(rows.slice(1)); // Remove header row
-
-      // Smart Auto-Mapping
-      const initialMapping: Record<string, number> = {};
-      headers.forEach((h, idx) => {
-        const header = h.toLowerCase().replace(/\s/g, '');
-        if (header.includes('section') || header.includes('섹션') || header.includes('depth')) initialMapping['section'] = idx; // Pick last one matches
-        if (header.includes('title') || header.includes('제목')) initialMapping['title'] = idx;
-        if (header.includes('priority') || header.includes('중요') || header.includes('우선')) initialMapping['priority'] = idx;
-        if (header.includes('type') || header.includes('유형') || header.includes('구분')) initialMapping['type'] = idx;
-        if (header.includes('pre') || header.includes('사전')) initialMapping['precondition'] = idx;
-        if (header.includes('step') || header.includes('절차') || header.includes('방법')) initialMapping['step'] = idx;
-        if (header.includes('expect') || header.includes('기대') || header.includes('예상')) initialMapping['expected'] = idx;
-      });
-      setColumnMapping(initialMapping);
-      setMode('MAPPING');
-    };
-    reader.readAsText(file);
-  };
-
-  const processMapping = () => {
-    // Validate required fields
-    if (columnMapping['title'] === undefined) {
-      alert("'케이스 제목' 컬럼은 반드시 매핑해야 합니다.");
-      return;
-    }
-
-    const parsedCases: any[] = [];
-    const errors: string[] = [];
-    let currentCase: any = null;
-
-    rawRows.forEach((row, idx) => {
-      // Empty row check
-      if (row.length === 0 || (row.length === 1 && !row[0])) return;
-
-      const getVal = (key: string) => {
-        const colIdx = columnMapping[key];
-        return colIdx !== undefined && row[colIdx] ? row[colIdx].trim() : '';
-      };
-
-      const title = getVal('title');
-      const step = getVal('step');
-      const expected = getVal('expected');
-      
-      if (title) {
-        // New Case
-        if (currentCase) parsedCases.push(currentCase);
-
-        // Normalize Values
-        const rawPriority = getVal('priority');
-        const rawType = getVal('type');
-
-        currentCase = {
-          sectionTitle: getVal('section') || 'Uncategorized',
-          title: title,
-          priority: rawPriority ? normalizePriority(rawPriority) : 'MEDIUM',
-          type: rawType ? normalizeType(rawType) : 'FUNCTIONAL',
-          precondition: getVal('precondition'),
-          steps: []
-        };
-        
-        if (step || expected) {
-          currentCase.steps.push({ id: Date.now() + idx, step, expected });
-        }
-      } else {
-        // Append Step to previous case (if merged cell style)
-        if (currentCase) {
-          if (step || expected) {
-            currentCase.steps.push({ id: Date.now() + idx, step, expected });
-          }
-        } else {
-          // Orphan row? Ignore or log warning.
-          // errors.push(`Row ${idx + 2}: 제목이 없고 이전 케이스도 없어 스킵되었습니다.`);
-        }
-      }
-    });
-    
-    if (currentCase) parsedCases.push(currentCase);
-
-    if (parsedCases.length === 0) {
-      alert("매핑 결과 유효한 케이스를 찾지 못했습니다. 매핑을 확인해주세요.");
-      return;
-    }
-
-    setImportData(parsedCases);
-    setImportErrors(errors);
-    setMode('PREVIEW');
-  };
-
-  const executeImport = () => {
-    if (!user) return;
-    TestCaseService.importCases(project.id, importData, user);
-    onImportSuccess();
-    onClose();
-    // Reset
-    setMode('SELECT');
-    setImportData([]);
-    setImportErrors([]);
-    setRawRows([]);
-  };
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-3/4 h-3/4 flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
+      <div className="bg-white rounded-lg shadow-xl w-[900px] h-[90vh] flex flex-col">
         <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-          <h3 className="font-bold text-lg">데이터 가져오기 / 내보내기</h3>
+          <h3 className="font-bold text-lg flex items-center gap-2"><BarChart2 size={20}/> 테스트 리포트 생성</h3>
           <button onClick={onClose}><XCircle size={20} /></button>
         </div>
 
-        <div className="flex-1 p-8 overflow-y-auto">
-          {mode === 'SELECT' && (
-            <div className="grid grid-cols-2 gap-8 h-full">
-              {/* Export */}
-              <div className="border rounded-lg p-6 hover:shadow-md transition flex flex-col items-center justify-center space-y-4">
-                <div className="bg-blue-100 p-4 rounded-full text-primary"><Download size={48} /></div>
-                <h4 className="text-xl font-bold">내보내기 (Export)</h4>
-                <div className="flex gap-2 w-full mt-4">
-                  <button onClick={() => exportToCSV(cases, sections)} className="flex-1 py-2 border rounded hover:bg-gray-50 font-medium">CSV (Excel)</button>
-                  <button onClick={() => exportToJSON(cases)} className="flex-1 py-2 border rounded hover:bg-gray-50 font-medium">JSON (Backup)</button>
-                </div>
-              </div>
-              {/* Import */}
-              <div className="border rounded-lg p-6 hover:shadow-md transition flex flex-col items-center justify-center space-y-4">
-                <div className="bg-green-100 p-4 rounded-full text-green-600"><Upload size={48} /></div>
-                <h4 className="text-xl font-bold">가져오기 (Import)</h4>
-                <p className="text-center text-gray-500 text-sm">업로드 시 컬럼 매핑을 통해<br/>다양한 양식을 지원합니다.</p>
-                <input 
-                  type="file" accept=".csv,.json" ref={fileInputRef} className="hidden"
-                  onChange={handleFileUpload}
-                />
-                <button onClick={() => fileInputRef.current?.click()} className="w-full py-2 bg-primary text-white rounded hover:bg-blue-600 font-medium mt-4">파일 선택</button>
-              </div>
-            </div>
-          )}
+        <div className="flex-1 overflow-y-auto p-8">
+           <div className="mb-8">
+             <label className="block text-sm font-bold text-gray-700 mb-2">분석할 실행(Run) 선택</label>
+             <select 
+               className="w-full border rounded p-2 text-lg"
+               value={selectedRunId}
+               onChange={e => setSelectedRunId(e.target.value)}
+             >
+               <option value="">-- 테스트 실행 선택 --</option>
+               {runs.map(r => (
+                 <option key={r.id} value={r.id}>{r.title} ({new Date(r.createdAt).toLocaleDateString()})</option>
+               ))}
+             </select>
+           </div>
 
-          {mode === 'MAPPING' && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 mb-4">
-                <button onClick={() => setMode('SELECT')} className="text-gray-500 hover:text-gray-900">&larr; 다시 선택</button>
-                <h3 className="text-xl font-bold">CSV 컬럼 매핑</h3>
-              </div>
-              
-              <div className="bg-blue-50 p-4 rounded text-sm text-blue-800 mb-4">
-                <p>업로드한 파일의 헤더와 앱의 필드를 연결해주세요. 내용이 비어있는 행은 이전 케이스의 Step으로 자동 병합됩니다.</p>
-                <p className="mt-1 font-semibold">* 중요도 자동 보정: '상', 'High', 'A' 등은 자동으로 'HIGH'로 변환됩니다.</p>
-              </div>
-
-              <div className="grid gap-4 max-w-2xl mx-auto">
-                {INTERNAL_FIELDS.map((field) => (
-                  <div key={field.key} className="flex items-center justify-between border-b pb-2">
-                    <div className="w-1/3">
-                      <span className="font-semibold text-gray-700">{field.label}</span>
-                      {field.required && <span className="text-red-500 ml-1">*</span>}
-                    </div>
-                    <ArrowRight className="text-gray-400" />
-                    <div className="w-1/2">
-                      <select 
-                        className={`w-full p-2 border rounded ${columnMapping[field.key] === undefined && field.required ? 'border-red-300 bg-red-50' : ''}`}
-                        value={columnMapping[field.key] ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setColumnMapping(prev => ({
-                            ...prev,
-                            [field.key]: val === '' ? undefined : Number(val)
-                          } as any));
-                        }}
-                      >
-                        <option value="">(매핑 안 함)</option>
-                        {csvHeaders.map((header, idx) => (
-                          <option key={idx} value={idx}>{header} (Column {idx+1})</option>
-                        ))}
-                      </select>
-                    </div>
+           {reportData ? (
+             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               {/* 1. Summary Cards */}
+               <div className="grid grid-cols-4 gap-4">
+                  <div className="bg-blue-50 p-4 rounded border border-blue-100 text-center">
+                    <div className="text-sm text-blue-600 font-semibold uppercase">Total Cases</div>
+                    <div className="text-3xl font-bold text-blue-900">{reportData.run.caseIds?.length || 0}</div>
                   </div>
-                ))}
-              </div>
+                  <div className="bg-green-50 p-4 rounded border border-green-100 text-center">
+                    <div className="text-sm text-green-600 font-semibold uppercase">Passed</div>
+                    <div className="text-3xl font-bold text-green-900">{reportData.pass}</div>
+                  </div>
+                  <div className="bg-red-50 p-4 rounded border border-red-100 text-center">
+                    <div className="text-sm text-red-600 font-semibold uppercase">Failed</div>
+                    <div className="text-3xl font-bold text-red-900">{reportData.fail}</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 text-center">
+                    <div className="text-sm text-gray-500 font-semibold uppercase">Untested</div>
+                    <div className="text-3xl font-bold text-gray-700">{reportData.untested}</div>
+                  </div>
+               </div>
 
-              <div className="flex justify-end pt-6">
-                <button 
-                  onClick={processMapping}
-                  className="px-6 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600 flex items-center gap-2"
-                >
-                   매핑 완료 및 미리보기 <ArrowRightLeft size={16} />
-                </button>
-              </div>
-            </div>
-          )}
+               <div className="grid grid-cols-2 gap-8">
+                 {/* 2. Status Chart */}
+                 <div className="bg-white border rounded p-4 h-80 shadow-sm">
+                    <h4 className="font-bold text-gray-700 mb-4 border-b pb-2">최종 상태 분포 (Status Distribution)</h4>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <PieChart>
+                         <Pie
+                           data={[
+                             { name: 'Pass', value: reportData.pass, fill: '#22c55e' },
+                             { name: 'Fail', value: reportData.fail, fill: '#ef4444' },
+                             { name: 'Untested', value: reportData.untested, fill: '#e5e7eb' }
+                           ]}
+                           innerRadius={60}
+                           outerRadius={80}
+                           paddingAngle={5}
+                           dataKey="value"
+                         >
+                            <Cell fill="#22c55e" />
+                            <Cell fill="#ef4444" />
+                            <Cell fill="#e5e7eb" />
+                         </Pie>
+                         <Tooltip />
+                         <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                 </div>
 
-          {mode === 'PREVIEW' && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-4 bg-green-50 p-4 rounded text-green-800">
-                <CheckCircle size={24} />
-                <div>
-                  <h4 className="font-bold text-lg">데이터 변환 성공</h4>
-                  <p className="text-sm">총 {importData.length}개의 케이스가 생성될 예정입니다. 확인 후 최종 확정해주세요.</p>
-                </div>
-              </div>
-
-              {importErrors.length > 0 && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded p-4 text-sm text-yellow-800">
-                   <AlertTriangle className="inline mr-2" size={16}/> 일부 데이터 경고: {importErrors.length}건 (무시 가능)
-                </div>
-              )}
-
-              <div className="border rounded h-64 overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-100 sticky top-0">
-                    <tr>
-                      <th className="p-2 text-left w-32">Section</th>
-                      <th className="p-2 text-left">Title</th>
-                      <th className="p-2 text-left w-20">Priority</th>
-                      <th className="p-2 text-left w-24">Type</th>
-                      <th className="p-2 text-left w-24">Steps</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {importData.map((d, i) => (
-                      <tr key={i}>
-                        <td className="p-2 truncate max-w-[150px]" title={d.sectionTitle}>{d.sectionTitle}</td>
-                        <td className="p-2 font-medium">{d.title}</td>
-                        <td className="p-2">
-                           <span className={`px-1 rounded text-xs ${d.priority==='HIGH'?'bg-red-100 text-red-700': d.priority==='LOW'?'bg-green-100 text-green-700':'bg-gray-100'}`}>{d.priority}</span>
-                        </td>
-                        <td className="p-2">{d.type}</td>
-                        <td className="p-2 text-gray-500">{d.steps.length} steps</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <button onClick={() => { setMode('MAPPING'); }} className="px-4 py-2 border rounded hover:bg-gray-50">매핑 수정</button>
-                <button 
-                  onClick={executeImport} 
-                  className="px-4 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600 flex items-center gap-2"
-                >
-                  <Save size={18} /> 저장하기
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// [NEW] Directory View Component
-const DirectoryExplorer = ({ 
-  projects, onSelectProject, onManageProjects, onOpenProject
-}: { 
-  projects: Project[], 
-  onSelectProject: (p: Project) => void,
-  onManageProjects: () => void,
-  onOpenProject: (p: Project) => void
-}) => {
-  const [viewLevel, setViewLevel] = useState<'ROOT' | 'PROJECT'>('ROOT');
-  const [currentProject, setCurrentProject] = useState<Project | null>(null);
-  const [sections, setSections] = useState<Section[]>([]);
-  const [cases, setCases] = useState<TestCase[]>([]);
-
-  useEffect(() => {
-    if (viewLevel === 'PROJECT' && currentProject) {
-      setSections(TestCaseService.getSections(currentProject.id));
-      setCases(TestCaseService.getCases(currentProject.id));
-    }
-  }, [viewLevel, currentProject]);
-
-  const handleProjectClick = (p: Project) => {
-    setCurrentProject(p);
-    setViewLevel('PROJECT');
-  };
-
-  const handleGoRoot = () => {
-    setViewLevel('ROOT');
-    setCurrentProject(null);
-  };
-
-  return (
-    <div className="p-8 h-full bg-gray-50 flex flex-col">
-      {/* Breadcrumbs & Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2 text-lg">
-          <button 
-            onClick={handleGoRoot} 
-            className={`flex items-center gap-1 hover:text-primary ${viewLevel === 'ROOT' ? 'font-bold text-gray-900' : 'text-gray-500'}`}
-          >
-            <Folder size={20} className={viewLevel === 'ROOT' ? 'fill-current text-blue-500' : ''}/>
-            Home
-          </button>
-          {viewLevel === 'PROJECT' && currentProject && (
-             <>
-               <ChevronRight size={16} className="text-gray-400" />
-               <span className="font-bold text-gray-900">{currentProject.title}</span>
-             </>
-          )}
-        </div>
-        
-        {viewLevel === 'ROOT' ? (
-          <button onClick={onManageProjects} className="bg-primary text-white px-4 py-2 rounded shadow hover:bg-blue-600 flex items-center gap-2">
-            <Plus size={16} /> 새 프로젝트
-          </button>
-        ) : (
-          <button onClick={() => currentProject && onOpenProject(currentProject)} className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 flex items-center gap-2">
-             <LayoutDashboard size={16} /> 이 프로젝트 대시보드 열기
-          </button>
-        )}
-      </div>
-
-      {/* Grid Content */}
-      <div className="flex-1 overflow-y-auto">
-        {viewLevel === 'ROOT' ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-             {projects.map(p => {
-               // Calculate simple stats
-               const pCases = TestCaseService.getCases(p.id);
-               return (
-                 <div 
-                   key={p.id}
-                   onClick={() => handleProjectClick(p)}
-                   className={`bg-white p-5 rounded-lg border shadow-sm hover:shadow-md cursor-pointer transition flex flex-col justify-between h-40 group ${p.status === 'ARCHIVED' ? 'opacity-60 bg-gray-100' : ''}`}
-                 >
-                    <div>
-                      <div className="flex items-start justify-between mb-2">
-                        <Folder size={32} className={`text-blue-500 fill-current ${p.status === 'ARCHIVED' ? 'text-gray-400' : ''}`} />
-                        {p.status === 'ARCHIVED' && <Archive size={16} className="text-gray-500"/>}
-                      </div>
-                      <h3 className="font-bold text-gray-800 truncate" title={p.title}>{p.title}</h3>
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{p.description || '설명 없음'}</p>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-2 flex justify-between items-end">
-                       <span>{new Date(p.createdAt).toLocaleDateString()}</span>
-                       <span className="bg-gray-100 px-2 py-1 rounded text-gray-600 group-hover:bg-blue-100 group-hover:text-blue-600 transition">{pCases.length} items</span>
+                 {/* 3. Defect List */}
+                 <div className="bg-white border rounded p-4 h-80 shadow-sm flex flex-col">
+                    <h4 className="font-bold text-gray-700 mb-4 border-b pb-2 flex justify-between">
+                      <span>발생 결함 목록 (Defects)</span>
+                      <span className="bg-red-100 text-red-700 px-2 rounded text-sm">{reportData.allDefects.length}</span>
+                    </h4>
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+                       {reportData.allDefects.length === 0 ? (
+                         <div className="text-center text-gray-400 py-10">발견된 결함이 없습니다.</div>
+                       ) : (
+                         reportData.allDefects.map((d, i) => (
+                           <div key={i} className="p-3 bg-red-50 border border-red-100 rounded hover:bg-red-100 transition">
+                             <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                               <FileText size={10} /> {d.caseTitle}
+                             </div>
+                             <a href={d.issue.url} target="_blank" rel="noreferrer" className="text-red-700 font-bold hover:underline flex items-center gap-1">
+                               <Bug size={14} /> {d.issue.label} <ExternalLink size={12} />
+                             </a>
+                           </div>
+                         ))
+                       )}
                     </div>
                  </div>
-               );
-             })}
-          </div>
-        ) : (
-          <div>
-            {sections.length === 0 ? (
-               <div className="text-center py-20 text-gray-400">
-                  <FolderTree size={48} className="mx-auto mb-4 opacity-50"/>
-                  <p>생성된 섹션(폴더)이 없습니다.</p>
-                  <button onClick={() => currentProject && onOpenProject(currentProject)} className="mt-4 text-primary hover:underline">대시보드에서 추가하기</button>
                </div>
-            ) : (
-               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {sections.map(s => {
-                    const sCases = cases.filter(c => c.sectionId === s.id);
-                    return (
-                      <div key={s.id} className="bg-white p-5 rounded-lg border shadow-sm flex items-center gap-3">
-                         <div className="bg-blue-50 p-3 rounded text-blue-600">
-                           <Folder size={24} className="fill-current" />
-                         </div>
-                         <div className="overflow-hidden">
-                           <h4 className="font-bold text-gray-700 truncate">{s.title}</h4>
-                           <span className="text-xs text-gray-500">{sCases.length} files</span>
-                         </div>
-                      </div>
-                    );
-                  })}
-                  {/* Uncategorized */}
-                  {(() => {
-                    const uncategorized = cases.filter(c => !sections.find(s => s.id === c.sectionId));
-                    if (uncategorized.length === 0) return null;
-                    return (
-                      <div className="bg-white p-5 rounded-lg border shadow-sm flex items-center gap-3">
-                         <div className="bg-gray-100 p-3 rounded text-gray-500">
-                           <Folder size={24} className="fill-current" />
-                         </div>
-                         <div className="overflow-hidden">
-                           <h4 className="font-bold text-gray-700 truncate">미분류 (Uncategorized)</h4>
-                           <span className="text-xs text-gray-500">{uncategorized.length} files</span>
-                         </div>
-                      </div>
-                    );
-                  })()}
-               </div>
-            )}
-          </div>
-        )}
+
+             </div>
+           ) : (
+             <div className="h-full flex items-center justify-center text-gray-400">
+               테스트 실행을 선택하면 보고서가 생성됩니다.
+             </div>
+           )}
+        </div>
       </div>
     </div>
   );
@@ -950,6 +665,7 @@ const DirectoryExplorer = ({
 const Dashboard = ({ project }: { project: Project }) => {
   const [stats, setStats] = useState({ total: 0, automated: 0, runs: 0, passRate: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
+  const [isReportModalOpen, setReportModalOpen] = useState(false);
 
   useEffect(() => {
     // Calculate mock stats
@@ -972,7 +688,15 @@ const Dashboard = ({ project }: { project: Project }) => {
 
   return (
     <div className="p-6 space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">대시보드: {project.title}</h2>
+      <div className="flex justify-between items-center">
+         <h2 className="text-2xl font-bold text-gray-800">대시보드: {project.title}</h2>
+         <button 
+           onClick={() => setReportModalOpen(true)}
+           className="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-bold rounded shadow-sm hover:bg-gray-50 flex items-center gap-2"
+         >
+           <BarChart2 size={18} /> 보고서 생성
+         </button>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded shadow">
@@ -1006,6 +730,169 @@ const Dashboard = ({ project }: { project: Project }) => {
             <Bar name="실패(Failed)" dataKey="failed" fill="#ef4444" />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      <ReportModal 
+        isOpen={isReportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        project={project}
+      />
+    </div>
+  );
+};
+
+// [NEW] Import/Export Modal
+const ImportExportModal = ({ 
+  isOpen, onClose, project, cases, sections, onImportSuccess 
+}: { 
+  isOpen: boolean, onClose: () => void, project: Project, cases: TestCase[], sections: Section[], onImportSuccess: () => void 
+}) => {
+  const { user } = useContext(AuthContext);
+  const [tab, setTab] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
+  const [importText, setImportText] = useState('');
+
+  // Reset when opening
+  useEffect(() => {
+    if (isOpen) {
+      setTab('EXPORT');
+      setImportText('');
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleImport = () => {
+    if (!importText.trim() || !user) return;
+    try {
+      const rows = parseCSV(importText);
+      // Heuristic: Remove header if first row contains "Title" or "Section"
+      if (rows.length > 0 && (rows[0][1] === 'Title' || rows[0][0] === 'Section')) {
+        rows.shift();
+      }
+
+      const newCases: any[] = [];
+      let currentCase: any = null;
+
+      rows.forEach((row) => {
+        // CSV format from exportToCSV: 
+        // Section, Title, Priority, Type, Precondition, Step Action, Step Expected
+        const [section, title, priority, type, precondition, step, expected] = row;
+        
+        // If title exists, it's a start of a new case
+        if (title && title.trim()) {
+          currentCase = {
+            sectionTitle: section,
+            title,
+            priority: normalizePriority(priority),
+            type: normalizeType(type),
+            precondition,
+            steps: []
+          };
+          if (step || expected) {
+            currentCase.steps.push({ id: Math.random().toString(36).substr(2, 9), step, expected });
+          }
+          newCases.push(currentCase);
+        } else if (currentCase) {
+          // It's a continuation step for the previous case
+          if (step || expected) {
+             currentCase.steps.push({ id: Math.random().toString(36).substr(2, 9), step, expected });
+          }
+        }
+      });
+      
+      if (newCases.length === 0) {
+        alert("가져올 데이터가 없습니다.");
+        return;
+      }
+
+      // Call Service
+      // Casting to any because importCases might not be in the inferred type definition in this file context yet
+      (TestCaseService as any).importCases(project.id, newCases, user); 
+      
+      onImportSuccess();
+      onClose();
+      alert(`${newCases.length}개의 테스트 케이스를 성공적으로 가져왔습니다.`);
+    } catch (e) {
+      console.error(e);
+      alert("데이터 형식이 올바르지 않습니다. CSV 형식을 확인해주세요.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[80]">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-[600px] h-[550px] flex flex-col">
+        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
+           <ArrowRightLeft size={20}/> 데이터 가져오기 / 내보내기
+        </h3>
+        
+        <div className="flex gap-1 bg-gray-100 p-1 rounded mb-4">
+           <button 
+             className={`flex-1 py-1.5 rounded text-sm font-semibold transition ${tab === 'EXPORT' ? 'bg-white shadow text-primary' : 'text-gray-500 hover:bg-gray-200'}`}
+             onClick={() => setTab('EXPORT')}
+           >
+             내보내기 (Export)
+           </button>
+           <button 
+             className={`flex-1 py-1.5 rounded text-sm font-semibold transition ${tab === 'IMPORT' ? 'bg-white shadow text-primary' : 'text-gray-500 hover:bg-gray-200'}`}
+             onClick={() => setTab('IMPORT')}
+           >
+             가져오기 (Import)
+           </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {tab === 'EXPORT' ? (
+            <div className="space-y-6 p-2">
+               <div className="bg-blue-50 p-4 rounded border border-blue-100">
+                  <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2"><FileText size={18}/> CSV로 내보내기</h4>
+                  <p className="text-sm text-blue-600 mb-4">
+                    엑셀이나 구글 스프레드시트에서 편집할 수 있는 CSV 형식입니다.<br/>
+                    <span className="text-xs opacity-75">현재 {cases.length}개의 케이스가 포함됩니다.</span>
+                  </p>
+                  <button onClick={() => exportToCSV(cases, sections)} className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 font-bold text-sm">
+                    <Download size={16} /> CSV 다운로드
+                  </button>
+               </div>
+               <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                  <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><Bug size={18}/> JSON 백업</h4>
+                  <p className="text-sm text-gray-600 mb-4">데이터 전체 구조를 보존할 수 있는 JSON 형식입니다.</p>
+                  <button onClick={() => exportToJSON(cases)} className="bg-gray-700 text-white px-4 py-2 rounded shadow hover:bg-gray-800 flex items-center gap-2 font-bold text-sm">
+                    <Download size={16} /> JSON 다운로드
+                  </button>
+               </div>
+            </div>
+          ) : (
+             <div className="space-y-4 h-full flex flex-col">
+                <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-100">
+                   <div className="font-bold flex items-center gap-1 mb-1"><AlertTriangle size={14} /> 주의사항</div>
+                   CSV 텍스트를 아래 영역에 붙여넣으세요.<br/>
+                   첫 번째 줄(Header)은 자동으로 감지하여 제외합니다.
+                </div>
+                <div className="flex-1 flex flex-col">
+                  <label className="text-xs font-semibold text-gray-500 mb-1">CSV Content</label>
+                  <textarea 
+                    className="flex-1 w-full border rounded p-2 text-xs font-mono bg-gray-50 focus:bg-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none resize-none"
+                    placeholder={`Section,Title,Priority,Type,Precondition,Step Action,Step Expected\n"Auth","Login Test","HIGH","FUNCTIONAL","None","Enter ID","OK"`}
+                    value={importText}
+                    onChange={e => setImportText(e.target.value)}
+                  />
+                </div>
+             </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
+          <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">닫기</button>
+          {tab === 'IMPORT' && (
+             <button 
+               onClick={handleImport} 
+               disabled={!importText.trim()}
+               className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 disabled:opacity-50 font-bold"
+             >
+               가져오기 실행
+             </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1426,6 +1313,9 @@ const TestRunner = ({ project }: { project: Project }) => {
   // [NEW] Step Status & Form Status State
   const [stepStatuses, setStepStatuses] = useState<Record<string, TestStatus>>({});
   const [formStatus, setFormStatus] = useState<TestStatus>('UNTESTED');
+  
+  // [NEW] Issues (Defects) State
+  const [formIssues, setFormIssues] = useState<Issue[]>([]);
 
   // Run Create Modal
   const [isRunModalOpen, setRunModalOpen] = useState(false);
@@ -1460,6 +1350,7 @@ const TestRunner = ({ project }: { project: Project }) => {
        setFormActual(existingResult?.actualResult || '');
        setFormComment(existingResult?.comment || '');
        setFormStatus(existingResult?.status || 'UNTESTED');
+       setFormIssues(existingResult?.issues || []);
        
        // Load step statuses into map
        if (existingResult?.stepResults) {
@@ -1536,6 +1427,21 @@ const TestRunner = ({ project }: { project: Project }) => {
     }));
   };
 
+  const addIssue = () => {
+    setFormIssues([...formIssues, { id: Date.now().toString(), label: '', url: '' }]);
+  };
+
+  const updateIssue = (idx: number, field: 'label' | 'url', value: string) => {
+    const newIssues = [...formIssues];
+    newIssues[idx][field] = value;
+    setFormIssues(newIssues);
+  };
+
+  const removeIssue = (idx: number) => {
+    const newIssues = formIssues.filter((_, i) => i !== idx);
+    setFormIssues(newIssues);
+  };
+
   const submitResult = (autoNext: boolean = false) => {
     if (!activeCaseId || !activeRun || !user) return;
     
@@ -1549,7 +1455,8 @@ const TestRunner = ({ project }: { project: Project }) => {
       actualResult: formActual,
       comment: formComment,
       testerId: user.id,
-      stepResults: stepResultsArray
+      stepResults: stepResultsArray,
+      issues: formIssues.filter(i => i.label.trim() !== '') // Save Valid Issues
     });
 
     // Refresh results locally
@@ -1798,6 +1705,38 @@ const TestRunner = ({ project }: { project: Project }) => {
                           </div>
                         </div>
 
+                        {/* Defect Section */}
+                        <div className="mb-4 border-t pt-4">
+                           <div className="flex justify-between items-center mb-2">
+                              <label className="text-sm font-semibold text-red-600 flex items-center gap-1"><Bug size={14} /> 결함 (Issues/Defects)</label>
+                              <button onClick={addIssue} className="text-xs text-primary hover:underline font-bold">+ 결함 추가</button>
+                           </div>
+                           <div className="space-y-3">
+                             {formIssues.map((issue, idx) => (
+                               <div key={idx} className="flex items-start gap-2 bg-red-50 p-2 rounded border border-red-100">
+                                 <div className="flex-1 flex flex-col gap-1">
+                                   <input 
+                                     className="w-full border rounded px-2 py-1 text-sm focus:border-red-400 outline-none" 
+                                     placeholder="결함 요약 (예: 로그인 버튼 겹침)"
+                                     value={issue.label}
+                                     onChange={e => updateIssue(idx, 'label', e.target.value)}
+                                   />
+                                   <input 
+                                     className="w-full border rounded px-2 py-1 text-xs text-gray-500 focus:border-red-400 outline-none" 
+                                     placeholder="URL (JIRA 링크 등)"
+                                     value={issue.url}
+                                     onChange={e => updateIssue(idx, 'url', e.target.value)}
+                                   />
+                                 </div>
+                                 <button onClick={() => removeIssue(idx)} className="text-red-400 hover:text-red-700 p-1"><Trash2 size={16} /></button>
+                               </div>
+                             ))}
+                             {formIssues.length === 0 && (
+                               <div className="text-xs text-gray-400 italic pl-1">등록된 결함이 없습니다.</div>
+                             )}
+                           </div>
+                        </div>
+
                         <div className="flex items-center justify-end pt-4 border-t gap-3">
                            <button 
                              onClick={() => submitResult(false)} 
@@ -1925,343 +1864,24 @@ const TestRunner = ({ project }: { project: Project }) => {
       </div>
       
       <div className="grid gap-4">
-        {runs.map(run => (
-          <div key={run.id} className="bg-white p-4 rounded shadow flex justify-between items-center hover:bg-gray-50 transition cursor-pointer" onClick={() => handleOpenRun(run)}>
-            <div>
-              <h3 className="font-bold text-lg">{run.title}</h3>
-              <p className="text-sm text-gray-500">생성일: {new Date(run.createdAt).toLocaleDateString('ko-KR')} • {(run.caseIds || []).length}개 케이스</p>
-            </div>
-            <div className="flex items-center gap-4">
-               {/* Progress Bar Mock */}
-               <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
-                 <div className="bg-green-500 h-full" style={{width: '60%'}}></div>
-               </div>
-               <ChevronRight className="text-gray-400" />
-            </div>
-          </div>
-        ))}
-      </div>
-      <RunCreationModal
-        isOpen={isRunModalOpen}
-        onClose={() => setRunModalOpen(false)}
-        project={project}
-        onSubmit={handleCreateRun}
-      />
-    </div>
-  );
-};
+        {runs.map(run => {
+          // Calculate Stats for Stacked Bar
+          const results = RunService.getResults(run.id);
+          const total = run.caseIds?.length || 0;
+          const pass = results.filter(r => r.status === 'PASS').length;
+          const fail = results.filter(r => r.status === 'FAIL').length;
+          const untested = total - pass - fail; // Simplifying others as untested or fail context
 
-// 5. Admin User Management
-const AdminPanel = () => {
-  const { user } = useContext(AuthContext);
-  const [users, setUsers] = useState<User[]>([]);
+          const passPct = total > 0 ? (pass / total) * 100 : 0;
+          const failPct = total > 0 ? (fail / total) * 100 : 0;
+          const untestedPct = total > 0 ? 100 - passPct - failPct : 100;
 
-  useEffect(() => {
-    setUsers(AuthService.getAllUsers());
-  }, []);
-
-  const toggleStatus = (targetUser: User) => {
-    const newStatus = targetUser.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    AuthService.updateUser({ ...targetUser, status: newStatus });
-    setUsers(AuthService.getAllUsers());
-  };
-
-  const changeRole = (targetUser: User, newRole: Role) => {
-    AuthService.updateUser({ ...targetUser, role: newRole });
-    setUsers(AuthService.getAllUsers());
-  };
-
-  if (user?.role !== 'ADMIN') return <div>접근 권한이 없습니다.</div>;
-
-  return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-6">사용자 관리</h2>
-      <div className="bg-white rounded shadow overflow-hidden">
-        <table className="w-full">
-           <thead className="bg-gray-50 border-b">
-             <tr>
-               <th className="p-3 text-left">이름</th>
-               <th className="p-3 text-left">이메일</th>
-               <th className="p-3 text-left">역할 (Role)</th>
-               <th className="p-3 text-left">상태</th>
-               <th className="p-3 text-left">작업</th>
-             </tr>
-           </thead>
-           <tbody className="divide-y">
-             {users.map(u => (
-               <tr key={u.id}>
-                 <td className="p-3 font-medium">{u.name}</td>
-                 <td className="p-3 text-gray-500">{u.email}</td>
-                 <td className="p-3">
-                   <select 
-                     value={u.role} 
-                     onChange={(e) => changeRole(u, e.target.value as Role)}
-                     className="border rounded p-1 text-sm"
-                     disabled={u.id === user.id} // Cannot change own role
-                   >
-                     <option value="ADMIN">관리자 (Admin)</option>
-                     <option value="INTERNAL">내부 QA (Internal)</option>
-                     <option value="EXTERNAL">외부 인원 (External)</option>
-                   </select>
-                 </td>
-                 <td className="p-3">
-                   <span className={`px-2 py-1 rounded text-xs ${u.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                     {u.status}
-                   </span>
-                 </td>
-                 <td className="p-3">
-                   {u.id !== user.id && (
-                     <button 
-                       onClick={() => toggleStatus(u)}
-                       className="text-sm text-red-600 hover:underline"
-                     >
-                       {u.status === 'ACTIVE' ? '권한 회수 (차단)' : '권한 복구'}
-                     </button>
-                   )}
-                 </td>
-               </tr>
-             ))}
-           </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-// --- Main App Component ---
-
-const App = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [currentView, setCurrentView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'DIRECTORY'>('DASHBOARD');
-  
-  // Project Management State
-  const [isProjectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [isProjectModalOpen, setProjectModalOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
-  const [allProjects, setAllProjects] = useState<Project[]>([]);
-
-  // Load User & Projects
-  useEffect(() => {
-    const loggedIn = AuthService.getCurrentUser();
-    if (loggedIn) setUser(loggedIn);
-    refreshProjects();
-  }, []);
-
-  const refreshProjects = () => {
-    const projs = ProjectService.getAll();
-    setAllProjects(projs);
-    if (!activeProject && projs.length > 0) setActiveProject(projs[0]);
-  };
-
-  const login = (email: string) => {
-    const u = AuthService.login(email);
-    if (u) {
-       setUser(u);
-       refreshProjects();
-    } else alert("사용자를 찾을 수 없거나 비활성화된 계정입니다.");
-  };
-
-  const logout = () => {
-    AuthService.logout();
-    setUser(null);
-  };
-
-  const handleCreateProject = (title: string, desc: string, status: ProjectStatus) => {
-    ProjectService.create({ title, description: desc, status });
-    refreshProjects();
-    setProjectModalOpen(false);
-  };
-
-  const handleUpdateProject = (title: string, desc: string, status: ProjectStatus) => {
-    if (editingProject) {
-      ProjectService.update({ ...editingProject, title, description: desc, status });
-      refreshProjects();
-      // If updating current active project, refresh it
-      if (activeProject?.id === editingProject.id) {
-        setActiveProject({ ...editingProject, title, description: desc, status });
-      }
-      setProjectModalOpen(false);
-      setEditingProject(undefined);
-    }
-  };
-
-  const handleSwitchProject = (p: Project) => {
-    setActiveProject(p);
-    setProjectSwitcherOpen(false);
-    setCurrentView('DASHBOARD');
-  };
-
-  const handleManageProjects = () => {
-    setCurrentView('DIRECTORY');
-    setProjectSwitcherOpen(false);
-  };
-
-  if (!user) return <AuthContext.Provider value={{ user, login, logout }}><LoginScreen /></AuthContext.Provider>;
-
-  return (
-    <AuthContext.Provider value={{ user, login, logout }}>
-      <div className="flex h-screen bg-gray-50">
-        {/* Sidebar */}
-        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col relative z-20">
-          {/* Project Switcher Header */}
-          <div className="border-b border-slate-800 relative">
-             <button 
-               onClick={() => setProjectSwitcherOpen(!isProjectSwitcherOpen)}
-               className="w-full p-4 flex items-center justify-between hover:bg-slate-800 transition"
-             >
-               <div className="flex flex-col items-start overflow-hidden">
-                 <div className="text-xs text-blue-500 font-bold uppercase mb-0.5">Project</div>
-                 <div className="font-bold text-white text-sm truncate w-full text-left">{activeProject ? activeProject.title : 'No Project'}</div>
-               </div>
-               <ChevronDown size={16} className={`transition-transform ${isProjectSwitcherOpen ? 'rotate-180' : ''}`} />
-             </button>
-             
-             {/* Dropdown Menu */}
-             {isProjectSwitcherOpen && (
-               <div className="absolute top-full left-0 w-64 bg-slate-800 shadow-xl border-t border-slate-700 flex flex-col z-30 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="max-h-60 overflow-y-auto">
-                    {allProjects.filter(p => p.status === 'ACTIVE').map(p => (
-                      <button 
-                        key={p.id} 
-                        onClick={() => handleSwitchProject(p)}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-700 border-b border-slate-700/50 flex items-center justify-between ${activeProject?.id === p.id ? 'bg-slate-700/50 text-white font-semibold' : ''}`}
-                      >
-                        <span className="truncate">{p.title}</span>
-                        {activeProject?.id === p.id && <CheckCircle size={14} className="text-blue-500"/>}
-                      </button>
-                    ))}
-                  </div>
-                  <button 
-                    onClick={handleManageProjects}
-                    className="w-full text-left px-4 py-3 text-sm font-semibold text-blue-400 hover:text-blue-300 hover:bg-slate-700 flex items-center gap-2"
-                  >
-                    <Folder size={16} /> 모든 프로젝트 보기
-                  </button>
-                  {user.role === 'ADMIN' && (
-                    <button 
-                      onClick={() => { setEditingProject(undefined); setProjectModalOpen(true); setProjectSwitcherOpen(false); }}
-                      className="w-full text-left px-4 py-3 text-sm font-semibold text-green-400 hover:text-green-300 hover:bg-slate-700 flex items-center gap-2 border-t border-slate-700"
-                    >
-                      <Plus size={16} /> 새 프로젝트 생성
-                    </button>
-                  )}
-               </div>
-             )}
-          </div>
-          
-          <nav className="flex-1 p-2 space-y-1 mt-2">
-            <button onClick={() => setCurrentView('DASHBOARD')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'DASHBOARD' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-              <Layout size={18} /> 대시보드
-            </button>
-            <button onClick={() => setCurrentView('CASES')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'CASES' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-              <FolderTree size={18} /> 테스트 케이스
-            </button>
-            <button onClick={() => setCurrentView('RUNS')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'RUNS' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-              <PlayCircle size={18} /> 테스트 실행
-            </button>
-            {user.role === 'ADMIN' && (
-              <button onClick={() => setCurrentView('ADMIN')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'ADMIN' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-                <Users size={18} /> 사용자 관리
-              </button>
-            )}
-          </nav>
-
-          <div className="p-4 border-t border-slate-800">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
-                {user.name ? user.name.charAt(0) : 'U'}
+          return (
+            <div key={run.id} className="bg-white p-4 rounded shadow flex justify-between items-center hover:bg-gray-50 transition cursor-pointer" onClick={() => handleOpenRun(run)}>
+              <div>
+                <h3 className="font-bold text-lg">{run.title}</h3>
+                <p className="text-sm text-gray-500">생성일: {new Date(run.createdAt).toLocaleDateString('ko-KR')} • {total}개 케이스</p>
               </div>
-              <div className="overflow-hidden">
-                <div className="text-sm font-medium text-white truncate">{user.name || 'Unknown User'}</div>
-                <div className="text-xs text-slate-500">{user.role}</div>
-              </div>
-            </div>
-            <button onClick={logout} className="w-full flex items-center gap-2 text-sm text-slate-400 hover:text-white">
-              <LogOut size={16} /> 로그아웃
-            </button>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Header */}
-          <header className="h-14 bg-white border-b flex items-center px-6 justify-between">
-            <div className="flex items-center gap-2 text-gray-500">
-               {currentView === 'DIRECTORY' ? (
-                 <span className="font-semibold text-gray-900 flex items-center gap-2"><Folder size={18}/> 프로젝트 디렉토리</span>
-               ) : (
-                 <>
-                   <span>{activeProject?.title}</span>
-                   <ChevronRight size={16} />
-                   <span className="font-semibold text-gray-900 capitalize">
-                     {currentView === 'DASHBOARD' && '대시보드'}
-                     {currentView === 'CASES' && '테스트 케이스'}
-                     {currentView === 'RUNS' && '테스트 실행'}
-                     {currentView === 'ADMIN' && '사용자 관리'}
-                   </span>
-                 </>
-               )}
-            </div>
-            {currentView === 'DIRECTORY' && user.role === 'ADMIN' && (
-              <div className="flex gap-2">
-                 {/* Only allow managing settings if a project is 'selected' in logic or just create new */}
-              </div>
-            )}
-            {activeProject && currentView !== 'DIRECTORY' && user.role === 'ADMIN' && (
-              <button 
-                onClick={() => { setEditingProject(activeProject); setProjectModalOpen(true); }}
-                className="p-1.5 hover:bg-gray-100 rounded text-gray-500" title="프로젝트 설정"
-              >
-                <Settings size={18} />
-              </button>
-            )}
-          </header>
-
-          {/* Body */}
-          <div className="flex-1 overflow-auto bg-gray-50">
-             {currentView === 'DIRECTORY' ? (
-               <DirectoryExplorer 
-                 projects={allProjects} 
-                 onSelectProject={(p) => {/* Just visual focus? */}}
-                 onManageProjects={() => { setEditingProject(undefined); setProjectModalOpen(true); }}
-                 onOpenProject={(p) => { setActiveProject(p); setCurrentView('DASHBOARD'); }}
-               />
-             ) : !activeProject ? (
-               <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                  <Folder size={64} className="mb-4 opacity-20"/>
-                  <h3 className="text-lg font-medium text-gray-600">선택된 프로젝트가 없습니다.</h3>
-                  <p className="text-sm mt-2">좌측 상단 메뉴에서 프로젝트를 선택하거나 생성해주세요.</p>
-                  {user.role === 'ADMIN' && (
-                    <button 
-                      onClick={() => { setEditingProject(undefined); setProjectModalOpen(true); }}
-                      className="mt-6 px-6 py-2 bg-primary text-white rounded font-bold shadow hover:bg-blue-600"
-                    >
-                      새 프로젝트 시작하기
-                    </button>
-                  )}
-               </div>
-             ) : (
-               <>
-                 {currentView === 'DASHBOARD' && <Dashboard project={activeProject} />}
-                 {currentView === 'CASES' && <TestCaseManager project={activeProject} />}
-                 {currentView === 'RUNS' && <TestRunner project={activeProject} />}
-                 {currentView === 'ADMIN' && <AdminPanel />}
-               </>
-             )}
-          </div>
-        </main>
-      </div>
-
-      <ProjectModal 
-        isOpen={isProjectModalOpen}
-        onClose={() => { setProjectModalOpen(false); setEditingProject(undefined); }}
-        onSubmit={editingProject ? handleUpdateProject : handleCreateProject}
-        initialData={editingProject}
-      />
-    </AuthContext.Provider>
-  );
-};
-
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+              <div className="flex items-center gap-4">
+                 {/* Stacked Progress Bar */}
+                 <div className="w-48 h-3 bg

@@ -34,13 +34,20 @@ export interface TestStep {
   expected: string;
 }
 
+// [NEW] Issue Interface for Defect Tracking
+export interface Issue {
+  id: string;
+  label: string;
+  url: string;
+}
+
 export interface HistoryLog {
   id: string;
   entityType: 'CASE' | 'RESULT';
   entityId: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'EXECUTE'; // [MODIFIED] Added EXECUTE
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'EXECUTE';
   modifierId: string;
-  modifierName: string; // Denormalized for display
+  modifierName: string;
   changes: {
     field: string;
     oldVal: any;
@@ -68,9 +75,9 @@ export interface TestRun {
   projectId: string;
   title: string;
   status: 'OPEN' | 'COMPLETED';
-  assignedToId?: string; // Optional assignee
+  assignedToId?: string;
   createdAt: string;
-  caseIds: string[]; // List of cases included in this run
+  caseIds: string[];
 }
 
 export interface TestResult {
@@ -82,11 +89,11 @@ export interface TestResult {
   comment: string;
   testerId: string;
   timestamp: string;
-  images?: string[]; // Base64 or URLs
-  stepResults?: { stepId: string; status: TestStatus }[]; // [NEW] Individual step status
+  images?: string[];
+  stepResults?: { stepId: string; status: TestStatus }[];
+  issues?: Issue[]; // [NEW] Linked defects
 }
 
-// For UI State
 export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
