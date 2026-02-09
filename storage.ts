@@ -1,0 +1,236 @@
+import { 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep 
+} from './types';
+
+/**
+ * [DB_MIGRATION] 가이드 (DB 연동 시 필독)
+ * 
+ * 이 파일은 현재 브라우저의 localStorage를 사용하여 데이터베이스를 흉내(Mocking) 내고 있습니다.
+ * 실제 운영 환경(Production)으로 전환하기 위해서는 아래 절차를 따르세요:
+ * 
+ * 1. 모든 `localStorage.getItem/setItem` 호출을 실제 백엔드 API 호출(`fetch` 또는 `axios`)로 교체하세요.
+ * 2. `getItems` 함수 -> GET /api/{resource} 로 교체
+ * 3. `saveItem` 함수 -> POST /api/{resource} (생성) 또는 PUT /api/{resource}/{id} (수정) 로 교체
+ * 4. 특히 `HistoryLog` (변경 이력) 생성 로직은 데이터 무결성을 위해 반드시 프론트엔드가 아닌 "서버(Backend)"에서 처리해야 합니다.
+ */
+
+const STORAGE_KEYS = {
+  USERS: 'app_users',
+  PROJECTS: 'app_projects',
+  SECTIONS: 'app_sections',
+  CASES: 'app_cases',
+  RUNS: 'app_runs',
+  RESULTS: 'app_results',
+  HISTORY: 'app_history',
+  CURRENT_USER: 'app_current_user',
+};
+
+// --- Helper Functions ---
+const generateId = () => Math.random().toString(36).substr(2, 9);
+const now = () => new Date().toISOString();
+
+// --- Initial Seed Data (초기 데이터) ---
+const seedData = () => {
+  if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
+    const users: User[] = [
+      { id: 'u1', name: '관리자(Admin)', email: 'admin@company.com', role: 'ADMIN', status: 'ACTIVE' },
+      { id: 'u2', name: '김철수(QA)', email: 'jane@company.com', role: 'INTERNAL', status: 'ACTIVE' },
+      { id: 'u3', name: '이영희(파트너)', email: 'ext@vendor.com', role: 'EXTERNAL', status: 'ACTIVE' },
+    ];
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  }
+  if (!localStorage.getItem(STORAGE_KEYS.PROJECTS)) {
+    const projects: Project[] = [
+        { id: 'p1', title: 'Q2 웹사이트 개편', description: '메인 홈페이지 리뉴얼 프로젝트', status: 'ACTIVE', createdAt: now() }
+    ];
+    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
+  }
+};
+
+// Initialize
+seedData();
+
+// --- Generic DB Operations (Simulated) ---
+
+// [DB_MIGRATION]: API GET 호출로 교체 필요
+function getItems<T>(key: string): T[] {
+  const data = localStorage.getItem(key);
+  return data ? JSON.parse(data) : [];
+}
+
+// [DB_MIGRATION]: API POST/PUT 호출로 교체 필요
+function saveItems<T>(key: string, items: T[]) {
+  localStorage.setItem(key, JSON.stringify(items));
+}
+
+// --- Specific Services ---
+
+export const AuthService = {
+  login: (email: string): User | null => {
+    // [DB_MIGRATION]: POST /api/auth/login
+    const users = getItems<User>(STORAGE_KEYS.USERS);
+    const user = users.find(u => u.email === email && u.status === 'ACTIVE');
+    if (user) {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
+      return user;
+    }
+    return null;
+  },
+  logout: () => {
+    // [DB_MIGRATION]: POST /api/auth/logout
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+  },
+  getCurrentUser: (): User | null => {
+    // [DB_MIGRATION]: GET /api/auth/me
+    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    return data ? JSON.parse(data) : null;
+  },
+  getAllUsers: (): User[] => getItems<User>(STORAGE_KEYS.USERS),
+  updateUser: (user: User) => {
+    // [DB_MIGRATION]: PUT /api/users/:id
+    const users = getItems<User>(STORAGE_KEYS.USERS);
+    const index = users.findIndex(u => u.id === user.id);
+    if (index !== -1) {
+      users[index] = user;
+      saveItems(STORAGE_KEYS.USERS, users);
+    }
+  },
+  createUser: (user: User) => {
+     // [DB_MIGRATION]: POST /api/users
+     const users = getItems<User>(STORAGE_KEYS.USERS);
+     users.push(user);
+     saveItems(STORAGE_KEYS.USERS, users);
+  }
+};
+
+export const ProjectService = {
+  getAll: (): Project[] => getItems<Project>(STORAGE_KEYS.PROJECTS),
+  create: (project: Omit<Project, 'id' | 'createdAt'>) => {
+    // [DB_MIGRATION]: POST /api/projects
+    const projects = getItems<Project>(STORAGE_KEYS.PROJECTS);
+    const newProject: Project = { ...project, id: generateId(), createdAt: now() };
+    projects.push(newProject);
+    saveItems(STORAGE_KEYS.PROJECTS, projects);
+    return newProject;
+  }
+};
+
+export const TestCaseService = {
+  getSections: (projectId: string): Section[] => {
+    // [DB_MIGRATION]: GET /api/projects/:id/sections
+    return getItems<Section>(STORAGE_KEYS.SECTIONS).filter(s => s.projectId === projectId);
+  },
+  createSection: (section: Omit<Section, 'id'>) => {
+    const sections = getItems<Section>(STORAGE_KEYS.SECTIONS);
+    const newSection = { ...section, id: generateId() };
+    sections.push(newSection);
+    saveItems(STORAGE_KEYS.SECTIONS, sections);
+    return newSection;
+  },
+  getCases: (projectId: string): TestCase[] => {
+    // [DB_MIGRATION]: GET /api/projects/:id/cases
+    return getItems<TestCase>(STORAGE_KEYS.CASES).filter(c => c.projectId === projectId);
+  },
+  
+  // 변경 이력(History)을 처리하는 중요한 함수입니다.
+  saveCase: (caseData: Partial<TestCase>, modifier: User) => {
+    // [DB_MIGRATION]: POST/PUT /api/cases (아래 로직은 반드시 백엔드로 이동해야 함)
+    const cases = getItems<TestCase>(STORAGE_KEYS.CASES);
+    const existingIndex = cases.findIndex(c => c.id === caseData.id);
+    
+    if (existingIndex > -1) {
+      // UPDATE (수정)
+      const oldCase = cases[existingIndex];
+      const newCase = { ...oldCase, ...caseData, updatedAt: now() };
+      
+      // 변경 사항 추적 (Diff 계산)
+      const changes: HistoryLog['changes'] = [];
+      if (oldCase.title !== newCase.title) changes.push({ field: '제목(Title)', oldVal: oldCase.title, newVal: newCase.title });
+      if (oldCase.priority !== newCase.priority) changes.push({ field: '우선순위(Priority)', oldVal: oldCase.priority, newVal: newCase.priority });
+      if (JSON.stringify(oldCase.steps) !== JSON.stringify(newCase.steps)) {
+         changes.push({ field: '테스트 단계(Steps)', oldVal: '이전 단계', newVal: '단계 변경됨' });
+      }
+      
+      if (changes.length > 0) {
+        HistoryService.log({
+          id: generateId(),
+          entityType: 'CASE',
+          entityId: newCase.id,
+          action: 'UPDATE',
+          modifierId: modifier.id,
+          modifierName: modifier.name,
+          changes,
+          timestamp: now()
+        });
+      }
+
+      cases[existingIndex] = newCase;
+      saveItems(STORAGE_KEYS.CASES, cases);
+      return newCase;
+    } else {
+      // CREATE (생성)
+      const newCase = { 
+        ...caseData, 
+        id: generateId(), 
+        createdAt: now(), 
+        updatedAt: now() 
+      } as TestCase;
+      
+      cases.push(newCase);
+      saveItems(STORAGE_KEYS.CASES, cases);
+      
+      HistoryService.log({
+        id: generateId(),
+        entityType: 'CASE',
+        entityId: newCase.id,
+        action: 'CREATE',
+        modifierId: modifier.id,
+        modifierName: modifier.name,
+        changes: [],
+        timestamp: now()
+      });
+      return newCase;
+    }
+  }
+};
+
+export const RunService = {
+  getAll: (projectId: string): TestRun[] => {
+     return getItems<TestRun>(STORAGE_KEYS.RUNS).filter(r => r.projectId === projectId);
+  },
+  create: (run: Omit<TestRun, 'id' | 'createdAt'>) => {
+    const runs = getItems<TestRun>(STORAGE_KEYS.RUNS);
+    const newRun = { ...run, id: generateId(), createdAt: now() };
+    runs.push(newRun);
+    saveItems(STORAGE_KEYS.RUNS, runs);
+    return newRun;
+  },
+  getResults: (runId: string): TestResult[] => {
+    return getItems<TestResult>(STORAGE_KEYS.RESULTS).filter(r => r.runId === runId);
+  },
+  saveResult: (result: Omit<TestResult, 'id' | 'timestamp'>) => {
+    // [DB_MIGRATION]: POST /api/results
+    const results = getItems<TestResult>(STORAGE_KEYS.RESULTS);
+    // 기존 결과 덮어쓰기 로직
+    const filtered = results.filter(r => !(r.runId === result.runId && r.caseId === result.caseId));
+    
+    const newResult = { ...result, id: generateId(), timestamp: now() };
+    filtered.push(newResult);
+    saveItems(STORAGE_KEYS.RESULTS, filtered);
+    return newResult;
+  }
+};
+
+export const HistoryService = {
+  log: (log: HistoryLog) => {
+    // [DB_MIGRATION]: 백엔드 트리거(Trigger)로 처리하는 것이 가장 이상적임
+    const logs = getItems<HistoryLog>(STORAGE_KEYS.HISTORY);
+    logs.push(log);
+    saveItems(STORAGE_KEYS.HISTORY, logs);
+  },
+  getLogs: (entityId: string): HistoryLog[] => {
+    // [DB_MIGRATION]: GET /api/cases/:id/history
+    const logs = getItems<HistoryLog>(STORAGE_KEYS.HISTORY);
+    return logs.filter(l => l.entityId === entityId).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }
+};
