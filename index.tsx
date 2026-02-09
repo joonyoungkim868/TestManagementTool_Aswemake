@@ -4,13 +4,13 @@ import {
   Layout, LayoutDashboard, FolderTree, PlayCircle, Settings, Users, LogOut, 
   Plus, ChevronRight, ChevronDown, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
-  Play, PauseCircle, SkipForward, ArrowLeft
+  Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List
 } from 'lucide-react';
 import { 
   AuthService, ProjectService, TestCaseService, RunService, HistoryService 
 } from './storage';
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus 
 } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
@@ -217,6 +217,89 @@ const SimpleInputModal = ({
             disabled={!value.trim()}
           >
             생성
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// [NEW] Project Create/Edit Modal
+const ProjectModal = ({
+  isOpen, onClose, onSubmit, initialData
+}: {
+  isOpen: boolean, onClose: () => void, onSubmit: (title: string, desc: string, status: ProjectStatus) => void, initialData?: Project
+}) => {
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [status, setStatus] = useState<ProjectStatus>('ACTIVE');
+
+  useEffect(() => {
+    if(isOpen) {
+      if (initialData) {
+        setTitle(initialData.title);
+        setDesc(initialData.description);
+        setStatus(initialData.status);
+      } else {
+        setTitle('');
+        setDesc('');
+        setStatus('ACTIVE');
+      }
+    }
+  }, [isOpen, initialData]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-[500px]">
+        <h3 className="text-lg font-bold mb-4">{initialData ? '프로젝트 수정' : '새 프로젝트 생성'}</h3>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">프로젝트 명</label>
+            <input 
+              className="w-full border rounded p-2"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="예: 2024 상반기 앱 개편"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">설명</label>
+            <textarea 
+              className="w-full border rounded p-2 h-24"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="프로젝트에 대한 간단한 설명을 입력하세요."
+            />
+          </div>
+          {initialData && (
+             <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
+                <select 
+                  className="w-full border rounded p-2"
+                  value={status}
+                  onChange={e => setStatus(e.target.value as ProjectStatus)}
+                >
+                  <option value="ACTIVE">진행 중 (Active)</option>
+                  <option value="ARCHIVED">보관됨 (Archived)</option>
+                </select>
+             </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-6">
+          <button onClick={onClose} className="px-3 py-1 text-gray-500 hover:bg-gray-100 rounded">취소</button>
+          <button 
+            onClick={() => {
+              if(title.trim()) { onSubmit(title, desc, status); onClose(); }
+            }} 
+            className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 disabled:opacity-50 font-bold"
+            disabled={!title.trim()}
+          >
+            {initialData ? '수정 완료' : '프로젝트 생성'}
           </button>
         </div>
       </div>
@@ -717,6 +800,146 @@ const ImportExportModal = ({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// [NEW] Directory View Component
+const DirectoryExplorer = ({ 
+  projects, onSelectProject, onManageProjects, onOpenProject
+}: { 
+  projects: Project[], 
+  onSelectProject: (p: Project) => void,
+  onManageProjects: () => void,
+  onOpenProject: (p: Project) => void
+}) => {
+  const [viewLevel, setViewLevel] = useState<'ROOT' | 'PROJECT'>('ROOT');
+  const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [cases, setCases] = useState<TestCase[]>([]);
+
+  useEffect(() => {
+    if (viewLevel === 'PROJECT' && currentProject) {
+      setSections(TestCaseService.getSections(currentProject.id));
+      setCases(TestCaseService.getCases(currentProject.id));
+    }
+  }, [viewLevel, currentProject]);
+
+  const handleProjectClick = (p: Project) => {
+    setCurrentProject(p);
+    setViewLevel('PROJECT');
+  };
+
+  const handleGoRoot = () => {
+    setViewLevel('ROOT');
+    setCurrentProject(null);
+  };
+
+  return (
+    <div className="p-8 h-full bg-gray-50 flex flex-col">
+      {/* Breadcrumbs & Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2 text-lg">
+          <button 
+            onClick={handleGoRoot} 
+            className={`flex items-center gap-1 hover:text-primary ${viewLevel === 'ROOT' ? 'font-bold text-gray-900' : 'text-gray-500'}`}
+          >
+            <Folder size={20} className={viewLevel === 'ROOT' ? 'fill-current text-blue-500' : ''}/>
+            Home
+          </button>
+          {viewLevel === 'PROJECT' && currentProject && (
+             <>
+               <ChevronRight size={16} className="text-gray-400" />
+               <span className="font-bold text-gray-900">{currentProject.title}</span>
+             </>
+          )}
+        </div>
+        
+        {viewLevel === 'ROOT' ? (
+          <button onClick={onManageProjects} className="bg-primary text-white px-4 py-2 rounded shadow hover:bg-blue-600 flex items-center gap-2">
+            <Plus size={16} /> 새 프로젝트
+          </button>
+        ) : (
+          <button onClick={() => currentProject && onOpenProject(currentProject)} className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 flex items-center gap-2">
+             <LayoutDashboard size={16} /> 이 프로젝트 대시보드 열기
+          </button>
+        )}
+      </div>
+
+      {/* Grid Content */}
+      <div className="flex-1 overflow-y-auto">
+        {viewLevel === 'ROOT' ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+             {projects.map(p => {
+               // Calculate simple stats
+               const pCases = TestCaseService.getCases(p.id);
+               return (
+                 <div 
+                   key={p.id}
+                   onClick={() => handleProjectClick(p)}
+                   className={`bg-white p-5 rounded-lg border shadow-sm hover:shadow-md cursor-pointer transition flex flex-col justify-between h-40 group ${p.status === 'ARCHIVED' ? 'opacity-60 bg-gray-100' : ''}`}
+                 >
+                    <div>
+                      <div className="flex items-start justify-between mb-2">
+                        <Folder size={32} className={`text-blue-500 fill-current ${p.status === 'ARCHIVED' ? 'text-gray-400' : ''}`} />
+                        {p.status === 'ARCHIVED' && <Archive size={16} className="text-gray-500"/>}
+                      </div>
+                      <h3 className="font-bold text-gray-800 truncate" title={p.title}>{p.title}</h3>
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{p.description || '설명 없음'}</p>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-2 flex justify-between items-end">
+                       <span>{new Date(p.createdAt).toLocaleDateString()}</span>
+                       <span className="bg-gray-100 px-2 py-1 rounded text-gray-600 group-hover:bg-blue-100 group-hover:text-blue-600 transition">{pCases.length} items</span>
+                    </div>
+                 </div>
+               );
+             })}
+          </div>
+        ) : (
+          <div>
+            {sections.length === 0 ? (
+               <div className="text-center py-20 text-gray-400">
+                  <FolderTree size={48} className="mx-auto mb-4 opacity-50"/>
+                  <p>생성된 섹션(폴더)이 없습니다.</p>
+                  <button onClick={() => currentProject && onOpenProject(currentProject)} className="mt-4 text-primary hover:underline">대시보드에서 추가하기</button>
+               </div>
+            ) : (
+               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                  {sections.map(s => {
+                    const sCases = cases.filter(c => c.sectionId === s.id);
+                    return (
+                      <div key={s.id} className="bg-white p-5 rounded-lg border shadow-sm flex items-center gap-3">
+                         <div className="bg-blue-50 p-3 rounded text-blue-600">
+                           <Folder size={24} className="fill-current" />
+                         </div>
+                         <div className="overflow-hidden">
+                           <h4 className="font-bold text-gray-700 truncate">{s.title}</h4>
+                           <span className="text-xs text-gray-500">{sCases.length} files</span>
+                         </div>
+                      </div>
+                    );
+                  })}
+                  {/* Uncategorized */}
+                  {(() => {
+                    const uncategorized = cases.filter(c => !sections.find(s => s.id === c.sectionId));
+                    if (uncategorized.length === 0) return null;
+                    return (
+                      <div className="bg-white p-5 rounded-lg border shadow-sm flex items-center gap-3">
+                         <div className="bg-gray-100 p-3 rounded text-gray-500">
+                           <Folder size={24} className="fill-current" />
+                         </div>
+                         <div className="overflow-hidden">
+                           <h4 className="font-bold text-gray-700 truncate">미분류 (Uncategorized)</h4>
+                           <span className="text-xs text-gray-500">{uncategorized.length} files</span>
+                         </div>
+                      </div>
+                    );
+                  })()}
+               </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1810,27 +2033,68 @@ const AdminPanel = () => {
 const App = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [currentView, setCurrentView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN'>('DASHBOARD');
+  const [currentView, setCurrentView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'DIRECTORY'>('DASHBOARD');
+  
+  // Project Management State
+  const [isProjectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  const [isProjectModalOpen, setProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
 
-  // Load User from Session
+  // Load User & Projects
   useEffect(() => {
     const loggedIn = AuthService.getCurrentUser();
     if (loggedIn) setUser(loggedIn);
-    
-    // Load default project
-    const projects = ProjectService.getAll();
-    if (projects.length > 0) setActiveProject(projects[0]);
+    refreshProjects();
   }, []);
+
+  const refreshProjects = () => {
+    const projs = ProjectService.getAll();
+    setAllProjects(projs);
+    if (!activeProject && projs.length > 0) setActiveProject(projs[0]);
+  };
 
   const login = (email: string) => {
     const u = AuthService.login(email);
-    if (u) setUser(u);
-    else alert("사용자를 찾을 수 없거나 비활성화된 계정입니다.");
+    if (u) {
+       setUser(u);
+       refreshProjects();
+    } else alert("사용자를 찾을 수 없거나 비활성화된 계정입니다.");
   };
 
   const logout = () => {
     AuthService.logout();
     setUser(null);
+  };
+
+  const handleCreateProject = (title: string, desc: string, status: ProjectStatus) => {
+    ProjectService.create({ title, description: desc, status });
+    refreshProjects();
+    setProjectModalOpen(false);
+  };
+
+  const handleUpdateProject = (title: string, desc: string, status: ProjectStatus) => {
+    if (editingProject) {
+      ProjectService.update({ ...editingProject, title, description: desc, status });
+      refreshProjects();
+      // If updating current active project, refresh it
+      if (activeProject?.id === editingProject.id) {
+        setActiveProject({ ...editingProject, title, description: desc, status });
+      }
+      setProjectModalOpen(false);
+      setEditingProject(undefined);
+    }
+  };
+
+  const handleSwitchProject = (p: Project) => {
+    setActiveProject(p);
+    setProjectSwitcherOpen(false);
+    setCurrentView('DASHBOARD');
+  };
+
+  const handleManageProjects = () => {
+    setCurrentView('DIRECTORY');
+    setProjectSwitcherOpen(false);
   };
 
   if (!user) return <AuthContext.Provider value={{ user, login, logout }}><LoginScreen /></AuthContext.Provider>;
@@ -1839,15 +2103,54 @@ const App = () => {
     <AuthContext.Provider value={{ user, login, logout }}>
       <div className="flex h-screen bg-gray-50">
         {/* Sidebar */}
-        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col">
-          <div className="p-4 border-b border-slate-800">
-            <h1 className="text-white font-bold text-lg flex items-center gap-2">
-              <LayoutDashboard className="text-blue-500" /> Test Manager
-            </h1>
-            {activeProject && <div className="mt-2 text-xs bg-slate-800 p-2 rounded text-slate-400">프로젝트: {activeProject.title}</div>}
+        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col relative z-20">
+          {/* Project Switcher Header */}
+          <div className="border-b border-slate-800">
+             <button 
+               onClick={() => setProjectSwitcherOpen(!isProjectSwitcherOpen)}
+               className="w-full p-4 flex items-center justify-between hover:bg-slate-800 transition"
+             >
+               <div className="flex flex-col items-start overflow-hidden">
+                 <div className="text-xs text-blue-500 font-bold uppercase mb-0.5">Project</div>
+                 <div className="font-bold text-white text-sm truncate w-full text-left">{activeProject ? activeProject.title : 'No Project'}</div>
+               </div>
+               <ChevronDown size={16} className={`transition-transform ${isProjectSwitcherOpen ? 'rotate-180' : ''}`} />
+             </button>
+             
+             {/* Dropdown Menu */}
+             {isProjectSwitcherOpen && (
+               <div className="absolute top-full left-0 w-64 bg-slate-800 shadow-xl border-t border-slate-700 flex flex-col z-30 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="max-h-60 overflow-y-auto">
+                    {allProjects.filter(p => p.status === 'ACTIVE').map(p => (
+                      <button 
+                        key={p.id} 
+                        onClick={() => handleSwitchProject(p)}
+                        className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-700 border-b border-slate-700/50 flex items-center justify-between ${activeProject?.id === p.id ? 'bg-slate-700/50 text-white font-semibold' : ''}`}
+                      >
+                        <span className="truncate">{p.title}</span>
+                        {activeProject?.id === p.id && <CheckCircle size={14} className="text-blue-500"/>}
+                      </button>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={handleManageProjects}
+                    className="w-full text-left px-4 py-3 text-sm font-semibold text-blue-400 hover:text-blue-300 hover:bg-slate-700 flex items-center gap-2"
+                  >
+                    <Folder size={16} /> 모든 프로젝트 보기
+                  </button>
+                  {user.role === 'ADMIN' && (
+                    <button 
+                      onClick={() => { setEditingProject(undefined); setProjectModalOpen(true); setProjectSwitcherOpen(false); }}
+                      className="w-full text-left px-4 py-3 text-sm font-semibold text-green-400 hover:text-green-300 hover:bg-slate-700 flex items-center gap-2 border-t border-slate-700"
+                    >
+                      <Plus size={16} /> 새 프로젝트 생성
+                    </button>
+                  )}
+               </div>
+             )}
           </div>
           
-          <nav className="flex-1 p-2 space-y-1">
+          <nav className="flex-1 p-2 space-y-1 mt-2">
             <button onClick={() => setCurrentView('DASHBOARD')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'DASHBOARD' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
               <Layout size={18} /> 대시보드
             </button>
@@ -1885,21 +2188,59 @@ const App = () => {
           {/* Header */}
           <header className="h-14 bg-white border-b flex items-center px-6 justify-between">
             <div className="flex items-center gap-2 text-gray-500">
-               <span>{activeProject?.title}</span>
-               <ChevronRight size={16} />
-               <span className="font-semibold text-gray-900 capitalize">
-                 {currentView === 'DASHBOARD' && '대시보드'}
-                 {currentView === 'CASES' && '테스트 케이스'}
-                 {currentView === 'RUNS' && '테스트 실행'}
-                 {currentView === 'ADMIN' && '사용자 관리'}
-               </span>
+               {currentView === 'DIRECTORY' ? (
+                 <span className="font-semibold text-gray-900 flex items-center gap-2"><Folder size={18}/> 프로젝트 디렉토리</span>
+               ) : (
+                 <>
+                   <span>{activeProject?.title}</span>
+                   <ChevronRight size={16} />
+                   <span className="font-semibold text-gray-900 capitalize">
+                     {currentView === 'DASHBOARD' && '대시보드'}
+                     {currentView === 'CASES' && '테스트 케이스'}
+                     {currentView === 'RUNS' && '테스트 실행'}
+                     {currentView === 'ADMIN' && '사용자 관리'}
+                   </span>
+                 </>
+               )}
             </div>
+            {currentView === 'DIRECTORY' && user.role === 'ADMIN' && (
+              <div className="flex gap-2">
+                 {/* Only allow managing settings if a project is 'selected' in logic or just create new */}
+              </div>
+            )}
+            {activeProject && currentView !== 'DIRECTORY' && user.role === 'ADMIN' && (
+              <button 
+                onClick={() => { setEditingProject(activeProject); setProjectModalOpen(true); }}
+                className="p-1.5 hover:bg-gray-100 rounded text-gray-500" title="프로젝트 설정"
+              >
+                <Settings size={18} />
+              </button>
+            )}
           </header>
 
           {/* Body */}
-          <div className="flex-1 overflow-auto">
-             {!activeProject ? (
-               <div className="p-10 text-center">활성화된 프로젝트가 없습니다.</div>
+          <div className="flex-1 overflow-auto bg-gray-50">
+             {currentView === 'DIRECTORY' ? (
+               <DirectoryExplorer 
+                 projects={allProjects} 
+                 onSelectProject={(p) => {/* Just visual focus? */}}
+                 onManageProjects={() => { setEditingProject(undefined); setProjectModalOpen(true); }}
+                 onOpenProject={(p) => { setActiveProject(p); setCurrentView('DASHBOARD'); }}
+               />
+             ) : !activeProject ? (
+               <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                  <Folder size={64} className="mb-4 opacity-20"/>
+                  <h3 className="text-lg font-medium text-gray-600">선택된 프로젝트가 없습니다.</h3>
+                  <p className="text-sm mt-2">좌측 상단 메뉴에서 프로젝트를 선택하거나 생성해주세요.</p>
+                  {user.role === 'ADMIN' && (
+                    <button 
+                      onClick={() => { setEditingProject(undefined); setProjectModalOpen(true); }}
+                      className="mt-6 px-6 py-2 bg-primary text-white rounded font-bold shadow hover:bg-blue-600"
+                    >
+                      새 프로젝트 시작하기
+                    </button>
+                  )}
+               </div>
              ) : (
                <>
                  {currentView === 'DASHBOARD' && <Dashboard project={activeProject} />}
@@ -1911,6 +2252,13 @@ const App = () => {
           </div>
         </main>
       </div>
+
+      <ProjectModal 
+        isOpen={isProjectModalOpen}
+        onClose={() => { setProjectModalOpen(false); setEditingProject(undefined); }}
+        onSubmit={editingProject ? handleUpdateProject : handleCreateProject}
+        initialData={editingProject}
+      />
     </AuthContext.Provider>
   );
 };

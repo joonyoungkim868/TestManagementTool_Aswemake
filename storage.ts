@@ -141,6 +141,18 @@ export const ProjectService = {
     projects.push(newProject);
     saveItems(STORAGE_KEYS.PROJECTS, projects);
     return newProject;
+  },
+  // [NEW] Update project (Edit/Archive)
+  update: (project: Project) => {
+    // [DB_MIGRATION]: PUT /api/projects/:id
+    const projects = getItems<Project>(STORAGE_KEYS.PROJECTS);
+    const index = projects.findIndex(p => p.id === project.id);
+    if (index !== -1) {
+      projects[index] = project;
+      saveItems(STORAGE_KEYS.PROJECTS, projects);
+      return project;
+    }
+    return null;
   }
 };
 
@@ -346,12 +358,7 @@ export const RunService = {
       result.stepResults.forEach(newStep => {
         const oldStepStatus = oldStepsMap.get(newStep.stepId);
         if (oldStepStatus && oldStepStatus !== newStep.status) {
-          // Log only if changed. We use step index or ID? Since we don't have easy step index here, we just say "Step Changed"
-          // Or we can try to find step index if we loaded the case. But for simplicity:
           changes.push({ field: '단계별 상태', oldVal: oldStepStatus, newVal: newStep.status });
-        } else if (!oldStepStatus && newStep.status) {
-           // First time setting status
-           // changes.push({ field: '단계별 상태', oldVal: 'None', newVal: newStep.status });
         }
       });
     }
@@ -366,8 +373,6 @@ export const RunService = {
     saveItems(STORAGE_KEYS.RESULTS, results);
 
     // Create History Log
-    // Even if no specific fields changed (e.g. just confirmed Pass again), we might want to log execution.
-    // But usually we log only changes. If it's a new result (UNTESTED -> PASS), it has changes.
     if (changes.length > 0) {
       HistoryService.log({
         id: generateId(),
