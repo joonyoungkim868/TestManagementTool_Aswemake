@@ -191,6 +191,63 @@ export const TestCaseService = {
       });
       return newCase;
     }
+  },
+
+  // [NEW] Import 기능을 위한 대량 등록 메서드
+  importCases: (projectId: string, importData: any[], user: User) => {
+    const sections = getItems<Section>(STORAGE_KEYS.SECTIONS);
+    const cases = getItems<TestCase>(STORAGE_KEYS.CASES);
+    const history = getItems<HistoryLog>(STORAGE_KEYS.HISTORY);
+
+    // 섹션 이름 -> ID 매핑 (기존 섹션 재사용을 위해)
+    const sectionMap = new Map<string, string>(); 
+    sections.filter(s => s.projectId === projectId).forEach(s => sectionMap.set(s.title, s.id));
+
+    importData.forEach(data => {
+      // 1. 섹션 확인 및 생성
+      // 섹션 이름이 없으면 'Uncategorized'로 분류
+      const sectionName = data.sectionTitle && data.sectionTitle.trim() !== '' ? data.sectionTitle : '미분류';
+      let sectionId = sectionMap.get(sectionName);
+      
+      if (!sectionId) {
+        const newSection = { id: generateId(), projectId, title: sectionName };
+        sections.push(newSection);
+        sectionMap.set(newSection.title, newSection.id);
+        sectionId = newSection.id;
+      }
+
+      // 2. 케이스 생성
+      const newCase: TestCase = {
+        id: generateId(),
+        projectId,
+        sectionId,
+        title: data.title,
+        priority: data.priority,
+        type: data.type,
+        precondition: data.precondition || '',
+        steps: data.steps || [],
+        authorId: user.id,
+        createdAt: now(),
+        updatedAt: now()
+      };
+      cases.push(newCase);
+
+      // 3. 이력 생성
+      history.push({
+        id: generateId(),
+        entityType: 'CASE',
+        entityId: newCase.id,
+        action: 'CREATE',
+        modifierId: user.id,
+        modifierName: user.name,
+        changes: [],
+        timestamp: now()
+      });
+    });
+
+    saveItems(STORAGE_KEYS.SECTIONS, sections);
+    saveItems(STORAGE_KEYS.CASES, cases);
+    saveItems(STORAGE_KEYS.HISTORY, history);
   }
 };
 
