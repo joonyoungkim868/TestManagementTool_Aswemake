@@ -750,6 +750,7 @@ const ImportExportModal = ({
   const { user } = useContext(AuthContext);
   const [tab, setTab] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
   const [importText, setImportText] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reset when opening
   useEffect(() => {
@@ -760,6 +761,20 @@ const ImportExportModal = ({
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      setImportText(text);
+    };
+    reader.readAsText(file);
+    // Reset value so same file can be selected again if needed
+    e.target.value = '';
+  };
 
   const handleImport = () => {
     if (!importText.trim() || !user) return;
@@ -820,7 +835,7 @@ const ImportExportModal = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[80]">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-[600px] h-[550px] flex flex-col">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-[600px] h-[600px] flex flex-col">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
            <ArrowRightLeft size={20}/> 데이터 가져오기 / 내보내기
         </h3>
@@ -865,11 +880,35 @@ const ImportExportModal = ({
              <div className="space-y-4 h-full flex flex-col">
                 <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-100">
                    <div className="font-bold flex items-center gap-1 mb-1"><AlertTriangle size={14} /> 주의사항</div>
-                   CSV 텍스트를 아래 영역에 붙여넣으세요.<br/>
+                   CSV 파일을 업로드하거나 텍스트를 붙여넣으세요.<br/>
                    첫 번째 줄(Header)은 자동으로 감지하여 제외합니다.
                 </div>
+                
+                {/* File Upload Zone */}
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-primary cursor-pointer transition group"
+                >
+                    <Upload size={32} className="mb-2 text-gray-400 group-hover:text-primary transition-colors" />
+                    <span className="text-sm font-bold text-gray-600 group-hover:text-primary">CSV 파일 업로드 (Click to Upload)</span>
+                    <span className="text-xs text-gray-400 mt-1">.csv file only</span>
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept=".csv" 
+                        onChange={handleFileUpload} 
+                    />
+                </div>
+
+                <div className="relative flex py-1 items-center">
+                    <div className="flex-grow border-t border-gray-200"></div>
+                    <span className="flex-shrink-0 mx-4 text-gray-400 text-xs">또는 직접 입력 (OR Paste Text)</span>
+                    <div className="flex-grow border-t border-gray-200"></div>
+                </div>
+
                 <div className="flex-1 flex flex-col">
-                  <label className="text-xs font-semibold text-gray-500 mb-1">CSV Content</label>
+                  <label className="text-xs font-semibold text-gray-500 mb-1">CSV Content Preview</label>
                   <textarea 
                     className="flex-1 w-full border rounded p-2 text-xs font-mono bg-gray-50 focus:bg-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none resize-none"
                     placeholder={`Section,Title,Priority,Type,Precondition,Step Action,Step Expected\n"Auth","Login Test","HIGH","FUNCTIONAL","None","Enter ID","OK"`}
@@ -1619,7 +1658,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                               <tr className="bg-gray-50">
                                 <th className="border p-2 w-12 text-center">#</th>
                                 <th className="border p-2 text-left">수행 절차 (Action)</th>
-                                <th className="border p-2 text-left">기대 결과 (Expected)</th>
+                                <th className="border p-2 text-left">기대 결과 (Expected Result)</th>
                                 <th className="border p-2 w-28 text-center">Step Status</th>
                               </tr>
                             </thead>
