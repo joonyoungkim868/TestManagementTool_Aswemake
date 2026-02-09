@@ -1209,7 +1209,10 @@ const TestRunner = ({ project }: { project: Project }) => {
     if (activeRun) {
       const allCases = TestCaseService.getCases(project.id);
       const allSections = TestCaseService.getSections(project.id);
-      const included = allCases.filter(c => activeRun.caseIds.includes(c.id));
+      
+      // Safety check: ensure caseIds exists
+      const targetIds = activeRun.caseIds || [];
+      const included = allCases.filter(c => targetIds.includes(c.id));
       
       setCasesInRun(included);
       setRunResults(RunService.getResults(activeRun.id));
@@ -1329,7 +1332,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                   {casesInRun.findIndex(c => c.id === activeCaseId) + 1} / {casesInRun.length}
                 </span>
                 <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
-                   <div className="bg-green-500 h-full transition-all" style={{width: `${(runResults.length / casesInRun.length) * 100}%`}}></div>
+                   <div className="bg-green-500 h-full transition-all" style={{width: `${casesInRun.length > 0 ? (runResults.length / casesInRun.length) * 100 : 0}%`}}></div>
                 </div>
              </div>
            </div>
@@ -1608,7 +1611,7 @@ const TestRunner = ({ project }: { project: Project }) => {
           <div key={run.id} className="bg-white p-4 rounded shadow flex justify-between items-center hover:bg-gray-50 transition cursor-pointer" onClick={() => handleOpenRun(run)}>
             <div>
               <h3 className="font-bold text-lg">{run.title}</h3>
-              <p className="text-sm text-gray-500">생성일: {new Date(run.createdAt).toLocaleDateString('ko-KR')} • {run.caseIds.length}개 케이스</p>
+              <p className="text-sm text-gray-500">생성일: {new Date(run.createdAt).toLocaleDateString('ko-KR')} • {(run.caseIds || []).length}개 케이스</p>
             </div>
             <div className="flex items-center gap-4">
                {/* Progress Bar Mock */}
@@ -1629,3 +1632,193 @@ const TestRunner = ({ project }: { project: Project }) => {
     </div>
   );
 };
+
+// 5. Admin User Management
+const AdminPanel = () => {
+  const { user } = useContext(AuthContext);
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    setUsers(AuthService.getAllUsers());
+  }, []);
+
+  const toggleStatus = (targetUser: User) => {
+    const newStatus = targetUser.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    AuthService.updateUser({ ...targetUser, status: newStatus });
+    setUsers(AuthService.getAllUsers());
+  };
+
+  const changeRole = (targetUser: User, newRole: Role) => {
+    AuthService.updateUser({ ...targetUser, role: newRole });
+    setUsers(AuthService.getAllUsers());
+  };
+
+  if (user?.role !== 'ADMIN') return <div>접근 권한이 없습니다.</div>;
+
+  return (
+    <div className="p-6">
+      <h2 className="text-2xl font-bold mb-6">사용자 관리</h2>
+      <div className="bg-white rounded shadow overflow-hidden">
+        <table className="w-full">
+           <thead className="bg-gray-50 border-b">
+             <tr>
+               <th className="p-3 text-left">이름</th>
+               <th className="p-3 text-left">이메일</th>
+               <th className="p-3 text-left">역할 (Role)</th>
+               <th className="p-3 text-left">상태</th>
+               <th className="p-3 text-left">작업</th>
+             </tr>
+           </thead>
+           <tbody className="divide-y">
+             {users.map(u => (
+               <tr key={u.id}>
+                 <td className="p-3 font-medium">{u.name}</td>
+                 <td className="p-3 text-gray-500">{u.email}</td>
+                 <td className="p-3">
+                   <select 
+                     value={u.role} 
+                     onChange={(e) => changeRole(u, e.target.value as Role)}
+                     className="border rounded p-1 text-sm"
+                     disabled={u.id === user.id} // Cannot change own role
+                   >
+                     <option value="ADMIN">관리자 (Admin)</option>
+                     <option value="INTERNAL">내부 QA (Internal)</option>
+                     <option value="EXTERNAL">외부 인원 (External)</option>
+                   </select>
+                 </td>
+                 <td className="p-3">
+                   <span className={`px-2 py-1 rounded text-xs ${u.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                     {u.status}
+                   </span>
+                 </td>
+                 <td className="p-3">
+                   {u.id !== user.id && (
+                     <button 
+                       onClick={() => toggleStatus(u)}
+                       className="text-sm text-red-600 hover:underline"
+                     >
+                       {u.status === 'ACTIVE' ? '권한 회수 (차단)' : '권한 복구'}
+                     </button>
+                   )}
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// --- Main App Component ---
+
+const App = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [currentView, setCurrentView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN'>('DASHBOARD');
+
+  // Load User from Session
+  useEffect(() => {
+    const loggedIn = AuthService.getCurrentUser();
+    if (loggedIn) setUser(loggedIn);
+    
+    // Load default project
+    const projects = ProjectService.getAll();
+    if (projects.length > 0) setActiveProject(projects[0]);
+  }, []);
+
+  const login = (email: string) => {
+    const u = AuthService.login(email);
+    if (u) setUser(u);
+    else alert("사용자를 찾을 수 없거나 비활성화된 계정입니다.");
+  };
+
+  const logout = () => {
+    AuthService.logout();
+    setUser(null);
+  };
+
+  if (!user) return <AuthContext.Provider value={{ user, login, logout }}><LoginScreen /></AuthContext.Provider>;
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      <div className="flex h-screen bg-gray-50">
+        {/* Sidebar */}
+        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col">
+          <div className="p-4 border-b border-slate-800">
+            <h1 className="text-white font-bold text-lg flex items-center gap-2">
+              <LayoutDashboard className="text-blue-500" /> Test Manager
+            </h1>
+            {activeProject && <div className="mt-2 text-xs bg-slate-800 p-2 rounded text-slate-400">프로젝트: {activeProject.title}</div>}
+          </div>
+          
+          <nav className="flex-1 p-2 space-y-1">
+            <button onClick={() => setCurrentView('DASHBOARD')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'DASHBOARD' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+              <Layout size={18} /> 대시보드
+            </button>
+            <button onClick={() => setCurrentView('CASES')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'CASES' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+              <FolderTree size={18} /> 테스트 케이스
+            </button>
+            <button onClick={() => setCurrentView('RUNS')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'RUNS' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+              <PlayCircle size={18} /> 테스트 실행
+            </button>
+            {user.role === 'ADMIN' && (
+              <button onClick={() => setCurrentView('ADMIN')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'ADMIN' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+                <Users size={18} /> 사용자 관리
+              </button>
+            )}
+          </nav>
+
+          <div className="p-4 border-t border-slate-800">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                {user.name ? user.name.charAt(0) : 'U'}
+              </div>
+              <div className="overflow-hidden">
+                <div className="text-sm font-medium text-white truncate">{user.name || 'Unknown User'}</div>
+                <div className="text-xs text-slate-500">{user.role}</div>
+              </div>
+            </div>
+            <button onClick={logout} className="w-full flex items-center gap-2 text-sm text-slate-400 hover:text-white">
+              <LogOut size={16} /> 로그아웃
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          {/* Header */}
+          <header className="h-14 bg-white border-b flex items-center px-6 justify-between">
+            <div className="flex items-center gap-2 text-gray-500">
+               <span>{activeProject?.title}</span>
+               <ChevronRight size={16} />
+               <span className="font-semibold text-gray-900 capitalize">
+                 {currentView === 'DASHBOARD' && '대시보드'}
+                 {currentView === 'CASES' && '테스트 케이스'}
+                 {currentView === 'RUNS' && '테스트 실행'}
+                 {currentView === 'ADMIN' && '사용자 관리'}
+               </span>
+            </div>
+          </header>
+
+          {/* Body */}
+          <div className="flex-1 overflow-auto">
+             {!activeProject ? (
+               <div className="p-10 text-center">활성화된 프로젝트가 없습니다.</div>
+             ) : (
+               <>
+                 {currentView === 'DASHBOARD' && <Dashboard project={activeProject} />}
+                 {currentView === 'CASES' && <TestCaseManager project={activeProject} />}
+                 {currentView === 'RUNS' && <TestRunner project={activeProject} />}
+                 {currentView === 'ADMIN' && <AdminPanel />}
+               </>
+             )}
+          </div>
+        </main>
+      </div>
+    </AuthContext.Provider>
+  );
+};
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);

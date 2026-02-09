@@ -31,36 +31,57 @@ const now = () => new Date().toISOString();
 
 // --- Initial Seed Data (초기 데이터) ---
 const seedData = () => {
-  if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-    const users: User[] = [
-      { id: 'u1', name: '관리자(Admin)', email: 'admin@company.com', role: 'ADMIN', status: 'ACTIVE' },
-      { id: 'u2', name: '김철수(QA)', email: 'jane@company.com', role: 'INTERNAL', status: 'ACTIVE' },
-      { id: 'u3', name: '이영희(파트너)', email: 'ext@vendor.com', role: 'EXTERNAL', status: 'ACTIVE' },
-    ];
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.PROJECTS)) {
-    const projects: Project[] = [
-        { id: 'p1', title: 'Q2 웹사이트 개편', description: '메인 홈페이지 리뉴얼 프로젝트', status: 'ACTIVE', createdAt: now() }
-    ];
-    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
+  try {
+    if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
+      const users: User[] = [
+        { id: 'u1', name: '관리자(Admin)', email: 'admin@company.com', role: 'ADMIN', status: 'ACTIVE' },
+        { id: 'u2', name: '김철수(QA)', email: 'jane@company.com', role: 'INTERNAL', status: 'ACTIVE' },
+        { id: 'u3', name: '이영희(파트너)', email: 'ext@vendor.com', role: 'EXTERNAL', status: 'ACTIVE' },
+      ];
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    }
+    if (!localStorage.getItem(STORAGE_KEYS.PROJECTS)) {
+      const projects: Project[] = [
+          { id: 'p1', title: 'Q2 웹사이트 개편', description: '메인 홈페이지 리뉴얼 프로젝트', status: 'ACTIVE', createdAt: now() }
+      ];
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
+    }
+  } catch (e) {
+    console.warn("Storage access blocked or full");
   }
 };
 
 // Initialize
-seedData();
+try {
+  seedData();
+} catch (e) {
+  console.error("Failed to seed data", e);
+}
 
 // --- Generic DB Operations (Simulated) ---
 
 // [DB_MIGRATION]: API GET 호출로 교체 필요
 function getItems<T>(key: string): T[] {
-  const data = localStorage.getItem(key);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = localStorage.getItem(key);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error(`Error parsing data for key ${key}`, error);
+    // 데이터 손상 시 빈 배열 반환하여 앱 충돌 방지
+    return [];
+  }
 }
 
 // [DB_MIGRATION]: API POST/PUT 호출로 교체 필요
 function saveItems<T>(key: string, items: T[]) {
-  localStorage.setItem(key, JSON.stringify(items));
+  try {
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch (error) {
+    console.error(`Error saving data for key ${key}`, error);
+    alert("브라우저 저장 공간이 부족하거나 오류가 발생했습니다.");
+  }
 }
 
 // --- Specific Services ---
@@ -82,8 +103,16 @@ export const AuthService = {
   },
   getCurrentUser: (): User | null => {
     // [DB_MIGRATION]: GET /api/auth/me
-    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    return data ? JSON.parse(data) : null;
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      if (!data) return null;
+      const user = JSON.parse(data);
+      // Basic validation
+      if (user && user.id && user.email) return user;
+      return null;
+    } catch (e) {
+      return null;
+    }
   },
   getAllUsers: (): User[] => getItems<User>(STORAGE_KEYS.USERS),
   updateUser: (user: User) => {
@@ -253,11 +282,14 @@ export const TestCaseService = {
 
 export const RunService = {
   getAll: (projectId: string): TestRun[] => {
-     return getItems<TestRun>(STORAGE_KEYS.RUNS).filter(r => r.projectId === projectId);
+     // Ensure caseIds is always an array to prevent crashes with old data
+     return getItems<TestRun>(STORAGE_KEYS.RUNS)
+       .filter(r => r.projectId === projectId)
+       .map(r => ({ ...r, caseIds: r.caseIds || [] }));
   },
   create: (run: Omit<TestRun, 'id' | 'createdAt'>) => {
     const runs = getItems<TestRun>(STORAGE_KEYS.RUNS);
-    const newRun = { ...run, id: generateId(), createdAt: now() };
+    const newRun = { ...run, id: generateId(), createdAt: now(), caseIds: run.caseIds || [] };
     runs.push(newRun);
     saveItems(STORAGE_KEYS.RUNS, runs);
     return newRun;
