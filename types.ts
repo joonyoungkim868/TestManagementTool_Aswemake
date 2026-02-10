@@ -68,6 +68,7 @@ export interface TestCase {
   authorId: string;
   createdAt: string;
   updatedAt: string;
+  sectionTitle?: string;
 }
 
 export interface TestRun {

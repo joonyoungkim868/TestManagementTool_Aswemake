@@ -997,3 +997,736 @@ const ImportExportModal = ({
     </div>
   );
 };
+
+// --- Missing Components (Restored) ---
+
+const TestCaseManager = ({ project }: { project: Project }) => {
+  const { user } = useContext(AuthContext);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [cases, setCases] = useState<TestCase[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [selectedCase, setSelectedCase] = useState<TestCase | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isImportOpen, setImportOpen] = useState(false);
+  const [isSectionModalOpen, setSectionModalOpen] = useState(false);
+
+  // Form State
+  const [editForm, setEditForm] = useState<Partial<TestCase>>({});
+
+  const loadData = () => {
+    Promise.all([
+      TestCaseService.getSections(project.id),
+      TestCaseService.getCases(project.id)
+    ]).then(([s, c]) => {
+      setSections(s);
+      setCases(c);
+    });
+  };
+
+  useEffect(() => {
+    loadData();
+    setSelectedSectionId(null);
+    setSelectedCase(null);
+    setIsEditing(false);
+  }, [project]);
+
+  const filteredCases = selectedSectionId 
+    ? cases.filter(c => c.sectionId === selectedSectionId)
+    : cases;
+
+  const handleCreateCase = () => {
+    const newCase: Partial<TestCase> = {
+      title: '',
+      sectionId: selectedSectionId || (sections[0]?.id),
+      projectId: project.id,
+      priority: 'MEDIUM',
+      type: 'FUNCTIONAL',
+      steps: [{ id: '1', step: '', expected: '' }]
+    };
+    setEditForm(newCase);
+    setSelectedCase(null);
+    setIsEditing(true);
+  };
+
+  const handleSaveCase = async () => {
+    if (!editForm.title || !user) return;
+    await TestCaseService.saveCase(editForm, user);
+    setIsEditing(false);
+    loadData();
+  };
+
+  return (
+    <div className="flex h-full bg-white rounded shadow overflow-hidden">
+      {/* Sidebar: Sections */}
+      <div className="w-64 bg-gray-50 border-r flex flex-col">
+        <div className="p-3 border-b flex justify-between items-center">
+          <span className="font-bold text-gray-700 text-sm">섹션 (Folders)</span>
+          <button onClick={() => setSectionModalOpen(true)} className="p-1 hover:bg-gray-200 rounded"><Plus size={16}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div 
+            className={`p-2 text-sm rounded cursor-pointer flex items-center gap-2 ${selectedSectionId === null ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
+            onClick={() => setSelectedSectionId(null)}
+          >
+            <Folder size={16}/> 모든 케이스
+          </div>
+          {sections.map(s => (
+            <div 
+              key={s.id}
+              className={`p-2 text-sm rounded cursor-pointer flex items-center gap-2 ${selectedSectionId === s.id ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
+              onClick={() => setSelectedSectionId(s.id)}
+            >
+              <FolderTree size={16}/> {s.title}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Middle: Case List */}
+      <div className="w-80 border-r flex flex-col">
+        <div className="p-3 border-b flex justify-between items-center bg-white">
+           <span className="font-bold text-sm text-gray-700">{filteredCases.length} 케이스</span>
+           <div className="flex gap-1">
+             <button onClick={() => setImportOpen(true)} className="p-1 hover:bg-gray-100 rounded text-gray-500" title="가져오기/내보내기"><ArrowRightLeft size={16}/></button>
+             <button onClick={handleCreateCase} className="p-1 hover:bg-blue-50 text-primary rounded"><Plus size={18}/></button>
+           </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {filteredCases.map(c => (
+            <div 
+              key={c.id} 
+              className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
+              onClick={() => { setSelectedCase(c); setIsEditing(false); }}
+            >
+              <div className="text-xs text-gray-500 mb-1 flex justify-between">
+                <span>{c.id.substr(0,4)}</span>
+                <span className={`px-1 rounded text-[10px] ${c.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>{c.priority}</span>
+              </div>
+              <div className="font-medium text-sm line-clamp-2">{c.title}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Right: Detail */}
+      <div className="flex-1 flex flex-col bg-white">
+        {isEditing ? (
+          <div className="flex-1 flex flex-col p-6 overflow-y-auto">
+            <h3 className="text-lg font-bold mb-6 border-b pb-2">케이스 작성 / 수정</h3>
+            <div className="space-y-4 max-w-3xl">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">제목</label>
+                <input className="w-full border rounded p-2" value={editForm.title || ''} onChange={e => setEditForm({...editForm, title: e.target.value})} autoFocus />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                 <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">섹션</label>
+                    <select className="w-full border rounded p-2" value={editForm.sectionId || ''} onChange={e => setEditForm({...editForm, sectionId: e.target.value})}>
+                      {sections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                    </select>
+                 </div>
+                 <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">우선순위</label>
+                    <select className="w-full border rounded p-2" value={editForm.priority || 'MEDIUM'} onChange={e => setEditForm({...editForm, priority: e.target.value as any})}>
+                      <option value="HIGH">높음 (High)</option>
+                      <option value="MEDIUM">중간 (Medium)</option>
+                      <option value="LOW">낮음 (Low)</option>
+                    </select>
+                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">사전 조건</label>
+                <textarea className="w-full border rounded p-2 h-20" value={editForm.precondition || ''} onChange={e => setEditForm({...editForm, precondition: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">테스트 단계</label>
+                <div className="space-y-2">
+                  {editForm.steps?.map((step, idx) => (
+                    <div key={idx} className="flex gap-2 items-start group">
+                      <div className="w-8 text-center text-gray-400 py-2">{idx+1}</div>
+                      <textarea 
+                        className="flex-1 border rounded p-2 h-16 resize-none" 
+                        placeholder="행동 (Action)"
+                        value={step.step}
+                        onChange={e => {
+                           const newSteps = [...(editForm.steps || [])];
+                           newSteps[idx].step = e.target.value;
+                           setEditForm({...editForm, steps: newSteps});
+                        }}
+                      />
+                      <textarea 
+                        className="flex-1 border rounded p-2 h-16 resize-none" 
+                        placeholder="기대결과 (Expected)"
+                        value={step.expected}
+                        onChange={e => {
+                           const newSteps = [...(editForm.steps || [])];
+                           newSteps[idx].expected = e.target.value;
+                           setEditForm({...editForm, steps: newSteps});
+                        }}
+                      />
+                      <button 
+                        onClick={() => {
+                          const newSteps = editForm.steps?.filter((_, i) => i !== idx);
+                          setEditForm({...editForm, steps: newSteps});
+                        }}
+                        className="text-gray-400 hover:text-red-500 p-2"
+                      >
+                        <Trash2 size={16}/>
+                      </button>
+                    </div>
+                  ))}
+                  <button 
+                    onClick={() => setEditForm({...editForm, steps: [...(editForm.steps || []), { id: Date.now().toString(), step: '', expected: '' }]})}
+                    className="w-full py-2 border-2 border-dashed border-gray-300 rounded text-gray-500 hover:border-primary hover:text-primary font-bold flex items-center justify-center gap-2"
+                  >
+                    <Plus size={16}/> 단계 추가
+                  </button>
+                </div>
+              </div>
+              <div className="pt-4 flex gap-2">
+                 <button onClick={() => setIsEditing(false)} className="px-4 py-2 border rounded hover:bg-gray-50">취소</button>
+                 <button onClick={handleSaveCase} className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 font-bold">저장</button>
+              </div>
+            </div>
+          </div>
+        ) : selectedCase ? (
+          <div className="flex-1 p-8 overflow-y-auto">
+             <div className="flex justify-between items-start mb-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-bold px-2 py-0.5 bg-gray-100 text-gray-600 rounded uppercase">{selectedCase.type}</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${selectedCase.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{selectedCase.priority} Priority</span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">{selectedCase.title}</h2>
+                </div>
+                <button 
+                  onClick={() => { setEditForm(JSON.parse(JSON.stringify(selectedCase))); setIsEditing(true); }}
+                  className="px-3 py-1.5 border rounded hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                >
+                  <Edit size={16}/> 수정
+                </button>
+             </div>
+             
+             <div className="space-y-6">
+               {selectedCase.precondition && (
+                 <div className="bg-yellow-50 p-4 rounded border border-yellow-100">
+                   <h4 className="font-bold text-sm text-yellow-800 mb-1">사전 조건</h4>
+                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedCase.precondition}</p>
+                 </div>
+               )}
+               
+               <div>
+                 <h4 className="font-bold text-lg text-gray-800 mb-3 flex items-center gap-2"><List size={20}/> 테스트 절차</h4>
+                 <div className="border rounded-lg overflow-hidden">
+                   <table className="w-full text-sm text-left">
+                     <thead className="bg-gray-50 text-gray-500 font-medium border-b">
+                       <tr>
+                         <th className="p-3 w-12 text-center">#</th>
+                         <th className="p-3 w-1/2 border-r">행동 (Action)</th>
+                         <th className="p-3 w-1/2">기대 결과 (Expected)</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y">
+                       {selectedCase.steps.map((s, idx) => (
+                         <tr key={idx} className="hover:bg-gray-50">
+                           <td className="p-3 text-center text-gray-400">{idx+1}</td>
+                           <td className="p-3 border-r whitespace-pre-wrap">{s.step}</td>
+                           <td className="p-3 whitespace-pre-wrap">{s.expected}</td>
+                         </tr>
+                       ))}
+                       {selectedCase.steps.length === 0 && (
+                         <tr><td colSpan={3} className="p-8 text-center text-gray-400">등록된 단계가 없습니다.</td></tr>
+                       )}
+                     </tbody>
+                   </table>
+                 </div>
+               </div>
+             </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
+            <FileText size={48} className="mb-4 text-gray-200" />
+            <p className="text-lg font-medium">테스트 케이스를 선택하거나 생성하세요</p>
+          </div>
+        )}
+      </div>
+
+      <SimpleInputModal 
+        isOpen={isSectionModalOpen} 
+        onClose={() => setSectionModalOpen(false)} 
+        title="새 섹션 생성" 
+        label="섹션 이름" 
+        placeholder="예: 로그인, 결제 모듈"
+        onSubmit={async (val) => { await TestCaseService.createSection({ projectId: project.id, title: val }); loadData(); setSectionModalOpen(false); }}
+      />
+      <ImportExportModal 
+        isOpen={isImportOpen} 
+        onClose={() => setImportOpen(false)} 
+        project={project} 
+        cases={cases} 
+        sections={sections} 
+        onImportSuccess={loadData}
+      />
+    </div>
+  );
+};
+
+const TestRunner = ({ project }: { project: Project }) => {
+  const { user } = useContext(AuthContext);
+  const [runs, setRuns] = useState<TestRun[]>([]);
+  const [selectedRun, setSelectedRun] = useState<TestRun | null>(null);
+  const [runResults, setRunResults] = useState<TestResult[]>([]);
+  const [runCases, setRunCases] = useState<TestCase[]>([]);
+  const [activeCaseIndex, setActiveCaseIndex] = useState(0);
+  const [isCreateOpen, setCreateOpen] = useState(false);
+  const [isReportOpen, setReportOpen] = useState(false);
+
+  // Execution Form
+  const [status, setStatus] = useState<TestStatus>('UNTESTED');
+  const [actual, setActual] = useState('');
+  const [comment, setComment] = useState('');
+  const [defectLabel, setDefectLabel] = useState('');
+  const [defectUrl, setDefectUrl] = useState('');
+
+  const loadRuns = () => RunService.getAll(project.id).then(setRuns);
+
+  useEffect(() => {
+    loadRuns();
+    setSelectedRun(null);
+  }, [project]);
+
+  useEffect(() => {
+    if (selectedRun) {
+      Promise.all([
+        TestCaseService.getCases(project.id),
+        RunService.getResults(selectedRun.id),
+        TestCaseService.getSections(project.id)
+      ]).then(([allCases, results, sections]) => {
+        // Map sections
+        const sectionMap = new Map(sections.map(s => [s.id, s.title]));
+        // Filter cases that are in this run
+        const casesInRun = allCases
+          .filter(c => selectedRun.caseIds.includes(c.id))
+          .map(c => ({ ...c, sectionTitle: sectionMap.get(c.sectionId) }));
+
+        setRunCases(casesInRun);
+        setRunResults(results);
+        setActiveCaseIndex(0);
+        loadResultForCase(casesInRun[0], results);
+      });
+    }
+  }, [selectedRun]);
+
+  const loadResultForCase = (c: TestCase | undefined, results: TestResult[]) => {
+    if (!c) return;
+    const res = results.find(r => r.caseId === c.id);
+    if (res) {
+      setStatus(res.status);
+      setActual(res.actualResult);
+      setComment(res.comment);
+      // Load first issue for demo
+      if (res.issues && res.issues.length > 0) {
+        setDefectLabel(res.issues[0].label);
+        setDefectUrl(res.issues[0].url);
+      } else {
+        setDefectLabel('');
+        setDefectUrl('');
+      }
+    } else {
+      setStatus('UNTESTED');
+      setActual('');
+      setComment('');
+      setDefectLabel('');
+      setDefectUrl('');
+    }
+  };
+
+  const handleSaveResult = async (next: boolean) => {
+    if (!selectedRun || !runCases[activeCaseIndex] || !user) return;
+    
+    const currentCase = runCases[activeCaseIndex];
+    const issues: Issue[] = [];
+    if (defectLabel && defectUrl) {
+      issues.push({ id: Date.now().toString(), label: defectLabel, url: defectUrl });
+    }
+
+    const payload: Partial<TestResult> = {
+      runId: selectedRun.id,
+      caseId: currentCase.id,
+      status,
+      actualResult: actual,
+      comment,
+      testerId: user.id,
+      issues
+    };
+
+    await RunService.saveResult(payload);
+    
+    // Update local state
+    const updatedResults = [...runResults.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult];
+    setRunResults(updatedResults);
+
+    if (next && activeCaseIndex < runCases.length - 1) {
+      const nextIdx = activeCaseIndex + 1;
+      setActiveCaseIndex(nextIdx);
+      loadResultForCase(runCases[nextIdx], updatedResults);
+    }
+  };
+
+  if (!selectedRun) {
+    return (
+      <div className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold">테스트 실행 (Test Runs)</h2>
+          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600 flex items-center gap-2">
+            <PlayCircle size={18}/> 실행 계획 생성
+          </button>
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          {runs.map(run => {
+            const results = []; // Would need to fetch results for list view really, simplifying here
+            return (
+              <div key={run.id} className="bg-white p-4 rounded shadow border hover:border-primary cursor-pointer group" onClick={() => setSelectedRun(run)}>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-bold text-lg text-gray-800 group-hover:text-primary">{run.title}</h3>
+                  <span className="text-xs text-gray-500">{new Date(run.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                   <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div className="bg-gray-300 h-full w-0" /> {/* Simplify progress bar for list view */}
+                   </div>
+                   <span className="text-xs font-bold text-gray-500">{run.caseIds.length} Cases</span>
+                </div>
+              </div>
+            );
+          })}
+          {runs.length === 0 && <div className="text-center py-10 text-gray-500">생성된 실행 계획이 없습니다.</div>}
+        </div>
+        <RunCreationModal isOpen={isCreateOpen} onClose={() => setCreateOpen(false)} project={project} onSubmit={async (t, ids) => { await RunService.create({projectId: project.id, title: t, caseIds: ids}); loadRuns(); }} />
+      </div>
+    );
+  }
+
+  const activeCase = runCases[activeCaseIndex];
+  if (!activeCase) return <div>Loading...</div>;
+
+  const getStatusColor = (s: TestStatus) => {
+    switch(s) {
+      case 'PASS': return 'bg-green-100 text-green-700 border-green-500';
+      case 'FAIL': return 'bg-red-100 text-red-700 border-red-500';
+      case 'BLOCK': return 'bg-gray-800 text-white border-gray-900';
+      case 'NA': return 'bg-orange-100 text-orange-700 border-orange-500';
+      default: return 'bg-gray-100 text-gray-500 border-gray-300';
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-gray-100">
+      {/* Header */}
+      <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm z-10">
+         <div className="flex items-center gap-4">
+           <button onClick={() => setSelectedRun(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft/></button>
+           <div>
+             <h2 className="font-bold text-lg">{selectedRun.title}</h2>
+             <div className="flex items-center gap-2 text-xs text-gray-500">
+               <span>{activeCaseIndex + 1} / {runCases.length}</span>
+               <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                 <div className="h-full bg-green-500" style={{ width: `${(runResults.filter(r=>r.status==='PASS').length / runCases.length)*100}%` }}/>
+                 <div className="h-full bg-red-500" style={{ width: `${(runResults.filter(r=>r.status==='FAIL').length / runCases.length)*100}%` }}/>
+               </div>
+             </div>
+           </div>
+         </div>
+         <div className="flex gap-2">
+           <button onClick={() => setReportOpen(true)} className="px-3 py-1.5 border rounded hover:bg-gray-50 flex items-center gap-2 text-sm font-bold text-gray-600"><BarChart2 size={16}/> 리포트</button>
+         </div>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Case List Sidebar */}
+        <div className="w-72 bg-white border-r overflow-y-auto">
+          {runCases.map((c, idx) => {
+            const res = runResults.find(r => r.caseId === c.id);
+            const status = res?.status || 'UNTESTED';
+            return (
+              <div 
+                key={c.id} 
+                onClick={() => { setActiveCaseIndex(idx); loadResultForCase(c, runResults); }}
+                className={`p-3 border-b cursor-pointer flex items-center gap-2 text-sm hover:bg-gray-50 ${activeCaseIndex === idx ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
+              >
+                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'PASS' ? 'bg-green-500' : status === 'FAIL' ? 'bg-red-500' : 'bg-gray-300'}`} />
+                <span className="truncate flex-1">{c.title}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Center: Execution Area */}
+        <div className="flex-1 flex overflow-hidden">
+           {/* Case Detail */}
+           <div className="flex-1 overflow-y-auto p-8 bg-white max-w-4xl mx-auto shadow-sm my-4 rounded-lg">
+              <div className="mb-6 pb-4 border-b">
+                 <div className="flex gap-2 mb-2">
+                    <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-bold text-gray-600">{activeCase.sectionTitle || 'General'}</span>
+                    <span className="px-2 py-0.5 bg-blue-50 rounded text-xs font-bold text-blue-600">{activeCase.priority}</span>
+                 </div>
+                 <h1 className="text-2xl font-bold text-gray-900 mb-4">{activeCase.title}</h1>
+                 {activeCase.precondition && (
+                   <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-200">
+                     <strong>Precondition:</strong> {activeCase.precondition}
+                   </div>
+                 )}
+              </div>
+
+              <div className="space-y-6 mb-8">
+                 {activeCase.steps.map((step, i) => (
+                   <div key={i} className="flex gap-4">
+                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-500 flex-shrink-0">{i+1}</div>
+                      <div className="flex-1 grid grid-cols-2 gap-4">
+                         <div className="bg-gray-50 p-3 rounded border">
+                           <div className="text-xs font-bold text-gray-400 mb-1">ACTION</div>
+                           <div className="text-sm">{step.step}</div>
+                         </div>
+                         <div className="bg-gray-50 p-3 rounded border">
+                           <div className="text-xs font-bold text-gray-400 mb-1">EXPECTED</div>
+                           <div className="text-sm">{step.expected}</div>
+                         </div>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+
+              {/* Result Entry */}
+              <div className={`border-2 rounded-xl p-6 transition-colors ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
+                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><PlayCircle size={20}/> 결과 입력</h3>
+                 
+                 {/* Status Buttons */}
+                 <div className="flex gap-2 mb-4">
+                    {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
+                      <button 
+                        key={s}
+                        onClick={() => setStatus(s)}
+                        className={`flex-1 py-3 rounded font-bold transition-all ${status === s ? getStatusColor(s) + ' ring-2 ring-offset-1' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                 </div>
+
+                 <div className="space-y-4">
+                    {/* Defect Linker (Only if Fail) */}
+                    {status === 'FAIL' && (
+                       <div className="bg-red-50 p-4 rounded border border-red-100 animate-in fade-in">
+                          <label className="block text-sm font-bold text-red-800 mb-2 flex items-center gap-2"><Bug size={16}/> 결함 리포트 (Issue Tracker Link)</label>
+                          <div className="flex gap-2">
+                             <input className="flex-1 border rounded p-2 text-sm" placeholder="이슈 키 (예: QA-123)" value={defectLabel} onChange={e => setDefectLabel(e.target.value)} />
+                             <input className="flex-[2] border rounded p-2 text-sm" placeholder="이슈 URL (예: https://jira...)" value={defectUrl} onChange={e => setDefectUrl(e.target.value)} />
+                          </div>
+                       </div>
+                    )}
+                    
+                    <div>
+                       <label className="block text-sm font-bold text-gray-700 mb-1">실제 결과 (Actual Result)</label>
+                       <textarea className="w-full border rounded p-2 h-20" placeholder="기대 결과와 다를 경우 상세히 기술하세요." value={actual} onChange={e => setActual(e.target.value)} />
+                    </div>
+                    <div>
+                       <label className="block text-sm font-bold text-gray-700 mb-1">코멘트 (Optional)</label>
+                       <input className="w-full border rounded p-2" placeholder="비고 사항" value={comment} onChange={e => setComment(e.target.value)} />
+                    </div>
+                 </div>
+
+                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
+                    <button onClick={() => handleSaveResult(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded">저장만 하기</button>
+                    <button onClick={() => handleSaveResult(true)} className="px-6 py-2 bg-primary text-white font-bold rounded shadow hover:bg-blue-600 flex items-center gap-2">
+                       {status === 'PASS' ? <CheckCircle size={18}/> : <Save size={18}/>}
+                       {status === 'PASS' ? 'Pass & Next' : '저장 후 다음'}
+                    </button>
+                 </div>
+              </div>
+           </div>
+        </div>
+      </div>
+      <ReportModal isOpen={isReportOpen} onClose={() => setReportOpen(false)} project={project} />
+    </div>
+  );
+};
+
+const AdminPanel = () => {
+  const [users, setUsers] = useState<User[]>([]);
+  useEffect(() => { AuthService.getAllUsers().then(setUsers); }, []);
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Users/> 사용자 관리</h2>
+      <div className="bg-white rounded shadow overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="p-4">이름</th>
+              <th className="p-4">이메일</th>
+              <th className="p-4">권한</th>
+              <th className="p-4">상태</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {users.map(u => (
+              <tr key={u.id} className="hover:bg-gray-50">
+                <td className="p-4 font-bold">{u.name}</td>
+                <td className="p-4 text-gray-600">{u.email}</td>
+                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{u.role}</span></td>
+                <td className="p-4"><span className="text-green-600 font-bold text-xs">Active</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// --- Main App Component ---
+
+const App = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN'>('DASHBOARD');
+  const [isProjectModalOpen, setProjectModalOpen] = useState(false);
+
+  useEffect(() => {
+    const u = AuthService.getCurrentUser();
+    setUser(u);
+    if (u) loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    const list = await ProjectService.getAll();
+    setProjects(list);
+    if (list.length > 0 && !activeProject) {
+      setActiveProject(list[0]);
+    }
+  };
+
+  const login = async (email: string) => {
+    const u = await AuthService.login(email);
+    if (u) {
+      setUser(u);
+      loadProjects();
+    } else {
+      alert("로그인 실패");
+    }
+  };
+
+  const logout = () => {
+    AuthService.logout();
+    setUser(null);
+    setActiveProject(null);
+  };
+
+  if (!user) {
+    return (
+      <AuthContext.Provider value={{ user, login, logout }}>
+        <LoginScreen />
+      </AuthContext.Provider>
+    );
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      <div className="flex h-screen bg-gray-100 text-gray-900 font-sans">
+        {/* Sidebar */}
+        <div className="w-64 bg-gray-900 text-white flex flex-col shadow-xl">
+          <div className="p-4 border-b border-gray-800">
+            <h1 className="text-xl font-bold tracking-tight text-blue-400 mb-4">QA Manager</h1>
+            
+            {/* Project Switcher */}
+            <div className="relative group">
+              <button onClick={() => setProjectModalOpen(true)} className="w-full text-left bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition flex justify-between items-center group-hover:ring-1 ring-blue-500">
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Active Project</div>
+                  <div className="font-bold truncate">{activeProject?.title || 'No Project'}</div>
+                </div>
+                <ChevronDown size={16} className="text-gray-400"/>
+              </button>
+              {/* Dropdown would go here, simplified to just open create modal for now or switch logic */}
+              <div className="hidden group-hover:block absolute top-full left-0 w-full bg-white text-gray-900 rounded shadow-xl mt-1 py-1 z-50">
+                 {projects.map(p => (
+                   <div key={p.id} onClick={() => setActiveProject(p)} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
+                     {p.title}
+                     {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
+                   </div>
+                 ))}
+                 <div className="border-t mt-1 pt-1 px-2 pb-1">
+                    <button onClick={() => setProjectModalOpen(true)} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
+                      <Plus size={12}/> 새 프로젝트 생성
+                    </button>
+                 </div>
+              </div>
+            </div>
+          </div>
+
+          <nav className="flex-1 p-4 space-y-2">
+            <button onClick={() => setView('DASHBOARD')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'DASHBOARD' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <LayoutDashboard size={18} /> 대시보드
+            </button>
+            <button onClick={() => setView('CASES')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'CASES' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <FolderTree size={18} /> 테스트 케이스
+            </button>
+            <button onClick={() => setView('RUNS')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'RUNS' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <PlayCircle size={18} /> 테스트 실행
+            </button>
+            {user.role === 'ADMIN' && (
+              <button onClick={() => setView('ADMIN')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'ADMIN' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                <Settings size={18} /> 관리자 설정
+              </button>
+            )}
+          </nav>
+
+          <div className="p-4 border-t border-gray-800">
+            <div className="flex items-center gap-3 mb-4 px-2">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center font-bold text-white text-xs">
+                {user.name.charAt(0)}
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <div className="text-sm font-bold text-white truncate">{user.name}</div>
+                <div className="text-xs text-gray-500 truncate">{user.email}</div>
+              </div>
+            </div>
+            <button onClick={logout} className="w-full flex items-center gap-2 text-gray-400 hover:text-white text-sm px-2 transition">
+              <LogOut size={16} /> 로그아웃
+            </button>
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {activeProject ? (
+            <>
+              {view === 'DASHBOARD' && <Dashboard project={activeProject} />}
+              {view === 'CASES' && <TestCaseManager project={activeProject} />}
+              {view === 'RUNS' && <TestRunner project={activeProject} />}
+              {view === 'ADMIN' && <AdminPanel />}
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+              <Folder size={64} className="mb-4 opacity-20"/>
+              <p className="text-lg font-medium mb-4">선택된 프로젝트가 없습니다.</p>
+              <button onClick={() => setProjectModalOpen(true)} className="px-6 py-3 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-blue-600 transition">
+                첫 번째 프로젝트 생성하기
+              </button>
+            </div>
+          )}
+        </div>
+        
+        <ProjectModal 
+          isOpen={isProjectModalOpen} 
+          onClose={() => setProjectModalOpen(false)} 
+          onSubmit={async (t, d, s) => { await ProjectService.create({title: t, description: d, status: s}); loadProjects(); }} 
+        />
+      </div>
+    </AuthContext.Provider>
+  );
+};
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);

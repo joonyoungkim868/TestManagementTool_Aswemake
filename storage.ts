@@ -3,8 +3,8 @@ import {
 } from './types';
 import { supabase } from './supabaseClient';
 
-// Enable Supabase
-const USE_SUPABASE = true; 
+// Enable Supabase (Set to false for local demo stability)
+const USE_SUPABASE = false; 
 
 const STORAGE_KEYS = {
   USERS: 'app_users',
@@ -23,8 +23,13 @@ const now = () => new Date().toISOString();
 
 // --- LocalStorage Helpers (Wrapped in Promise for consistency) ---
 const getLocal = <T>(key: string): T[] => {
-  const data = localStorage.getItem(key);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    console.error(`Error parsing localStorage key "${key}":`, e);
+    return [];
+  }
 };
 const setLocal = (key: string, data: any[]) => localStorage.setItem(key, JSON.stringify(data));
 
@@ -42,27 +47,24 @@ export const AuthService = {
   },
 
   getCurrentUser: (): User | null => {
-    // Current user state is still kept local for session persistence in this simple app
-    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    return data ? JSON.parse(data) : null;
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      console.error("Failed to parse current user from localStorage. Clearing corrupted data.", e);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      return null;
+    }
   },
 
   login: async (email: string): Promise<User | null> => {
     if (USE_SUPABASE) {
-      // 1. Try to find user
       const { data, error } = await supabase.from('users').select('*').eq('email', email).single();
-      
       if (data) {
         localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(data));
         return data;
       }
-
-      // 2. If not found (and allows auto-creation for testing), create one? 
-      // For now, let's strictly return null if not found, OR create a temp user if it's the first run
-      // To mimic the Mock behavior (which had pre-seeded users), we might want to insert if empty.
-      // But let's assume users are seeded via SQL or Admin panel.
-      
-      // Fallback: If it's the very first admin login and table is empty, create admin
+      // Fallback for demo if supabase is empty
       const { count } = await supabase.from('users').select('*', { count: 'exact', head: true });
       if (count === 0 && email === 'admin@company.com') {
         const admin: User = { id: generateId(), name: 'Admin', email, role: 'ADMIN', status: 'ACTIVE' };
@@ -70,12 +72,9 @@ export const AuthService = {
         localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(admin));
         return admin;
       }
-      
       return null;
     } else {
-      // Mock Logic
       const users = getLocal<User>(STORAGE_KEYS.USERS);
-      // Seed if empty
       if (users.length === 0) {
         const seed = [
           { id: 'u1', name: '관리자(Admin)', email: 'admin@company.com', role: 'ADMIN', status: 'ACTIVE' },
@@ -194,7 +193,6 @@ export const TestCaseService = {
         if (oldData) {
           await HistoryService.logChange(oldData, data as TestCase, user);
         }
-        // Force update timestamp
         const payload = { ...data, updatedAt: now() };
         const { data: saved } = await supabase.from('testCases').update(payload).eq('id', data.id).select().single();
         return saved as TestCase;
@@ -252,11 +250,10 @@ export const TestCaseService = {
   },
 
   importCases: async (projectId: string, cases: Partial<TestCase>[], user: User) => {
-    // 1. Ensure sections exist or create them
-    const uniqueSections = Array.from(new Set(cases.map(c => c['sectionTitle'] || 'Uncategorized')));
+    const uniqueSections = Array.from(new Set(cases.map(c => c.sectionTitle || 'Uncategorized')));
     const existingSections = await TestCaseService.getSections(projectId);
     
-    const sectionMap = new Map<string, string>(); // Name -> ID
+    const sectionMap = new Map<string, string>(); 
     
     for (const secTitle of uniqueSections) {
       let match = existingSections.find(s => s.title === secTitle);
@@ -269,7 +266,7 @@ export const TestCaseService = {
     const newCases: TestCase[] = cases.map(c => ({
       id: generateId(),
       projectId,
-      sectionId: sectionMap.get(c['sectionTitle'] || 'Uncategorized')!,
+      sectionId: sectionMap.get(c.sectionTitle || 'Uncategorized')!,
       title: c.title!,
       precondition: c.precondition || '',
       steps: c.steps || [],
@@ -333,9 +330,7 @@ export const RunService = {
 
   saveResult: async (data: Partial<TestResult>) => {
     if (USE_SUPABASE) {
-      // Check if result exists
       const { data: existing } = await supabase.from('testResults').select('id').eq('runId', data.runId).eq('caseId', data.caseId).single();
-      
       const payload = {
         status: data.status,
         actualResult: data.actualResult,
@@ -399,7 +394,6 @@ export const HistoryService = {
     if (!oldObj) {
       changes.push({ field: 'ALL', oldVal: null, newVal: 'CREATED' });
     } else {
-      // Simple shallow diff
       for (const key of Object.keys(newObj)) {
         if (key === 'updatedAt' || key === 'createdAt') continue;
         if (JSON.stringify(oldObj[key]) !== JSON.stringify(newObj[key])) {
