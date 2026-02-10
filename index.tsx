@@ -1636,6 +1636,7 @@ const App = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'PROJECTS'>('DASHBOARD');
   const [isProjectModalOpen, setProjectModalOpen] = useState(false);
+  const [isProjectDropdownOpen, setProjectDropdownOpen] = useState(false);
 
   useEffect(() => {
     const u = AuthService.getCurrentUser();
@@ -1684,35 +1685,46 @@ const App = () => {
             <h1 className="text-xl font-bold tracking-tight text-blue-400 mb-4">QA Manager</h1>
             
             {/* Project Switcher */}
-            <div className="relative group">
-              <button onClick={() => setProjectModalOpen(true)} className="w-full text-left bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition flex justify-between items-center group-hover:ring-1 ring-blue-500">
+            <div className="relative">
+              <button 
+                onClick={() => setProjectDropdownOpen(!isProjectDropdownOpen)} 
+                className={`w-full text-left bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition flex justify-between items-center ${isProjectDropdownOpen ? 'ring-1 ring-blue-500' : ''}`}
+              >
                 <div>
                   <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Active Project</div>
                   <div className="font-bold truncate">{activeProject?.title || 'No Project'}</div>
                 </div>
-                <ChevronDown size={16} className="text-gray-400"/>
+                <ChevronDown size={16} className={`text-gray-400 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`}/>
               </button>
+
+              {/* Backdrop for click-outside */}
+              {isProjectDropdownOpen && (
+                <div className="fixed inset-0 z-40 cursor-default" onClick={() => setProjectDropdownOpen(false)}></div>
+              )}
+
               {/* Dropdown with Project List Button */}
-              <div className="hidden group-hover:block absolute top-full left-0 w-full bg-white text-gray-900 rounded shadow-xl mt-1 py-1 z-50">
-                 <div className="px-2 py-1.5 border-b mb-1">
-                    <button onClick={() => setView('PROJECTS')} className="w-full text-left px-2 py-1.5 hover:bg-gray-100 rounded text-sm font-bold flex items-center gap-2 text-gray-700">
-                        <LayoutGrid size={16}/> 전체 프로젝트 보기
-                    </button>
-                 </div>
-                 <div className="max-h-64 overflow-y-auto">
-                    {projects.map(p => (
-                      <div key={p.id} onClick={() => { setActiveProject(p); setView('DASHBOARD'); }} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
-                        {p.title}
-                        {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
-                      </div>
-                    ))}
-                 </div>
-                 <div className="border-t mt-1 pt-1 px-2 pb-1">
-                    <button onClick={() => setProjectModalOpen(true)} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
-                      <Plus size={12}/> 새 프로젝트 생성
-                    </button>
-                 </div>
-              </div>
+              {isProjectDropdownOpen && (
+                <div className="absolute top-full left-0 w-full bg-white text-gray-900 rounded shadow-xl mt-1 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                   <div className="px-2 py-1.5 border-b mb-1">
+                      <button onClick={() => { setView('PROJECTS'); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-gray-100 rounded text-sm font-bold flex items-center gap-2 text-gray-700">
+                          <LayoutGrid size={16}/> 전체 프로젝트 보기
+                      </button>
+                   </div>
+                   <div className="max-h-64 overflow-y-auto">
+                      {projects.map(p => (
+                        <div key={p.id} onClick={() => { setActiveProject(p); setView('DASHBOARD'); setProjectDropdownOpen(false); }} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
+                          {p.title}
+                          {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
+                        </div>
+                      ))}
+                   </div>
+                   <div className="border-t mt-1 pt-1 px-2 pb-1">
+                      <button onClick={() => { setProjectModalOpen(true); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
+                        <Plus size={12}/> 새 프로젝트 생성
+                      </button>
+                   </div>
+                </div>
+              )}
             </div>
           </div>
 
