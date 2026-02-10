@@ -78,6 +78,9 @@
             *   **[New] 지능형 헤더 감지 (Smart Header Detection):** CSV 상단의 불필요한 메타데이터(빈 줄, 문서 정보 등)를 무시하고, 실제 헤더 행(제목, 절차 등이 포함된 행)을 자동으로 찾아 매핑.
             *   한국어(제목, 중요도, 절차 등) 자동 인식 지원.
         *   *3단계 (Preview):* 매핑 결과 미리보기 (빈 행 건너뛰기 로직 포함).
+*   **5. 삭제 정책 (Deletion Policy):**
+    *   **섹션 삭제 (Cascade Delete):** 섹션(폴더) 삭제 시, 해당 섹션에 포함된 **모든 테스트 케이스도 함께 영구 삭제**됨. (실수 방지를 위한 Confirm 팝업 제공).
+    *   **케이스 삭제:** 리스트 및 상세 화면에서 개별 케이스 삭제 가능.
 
 #### D. 테스트 실행 (Test Runner) - [UI/UX 대규모 개선]
 *   **목적:** 실제 테스트를 수행하고 결과를 기록하는 핵심 워크플로우.
@@ -115,6 +118,14 @@
         *   *동작:* 버튼 클릭 시 **현재 케이스를 'PASS'로 즉시 저장**하고, **자동으로 다음 케이스로 이동**.
         *   *기획 의도:* 반복적인 성공 케이스 입력 시 클릭 피로도 감소 (Click reduction).
 
+**4. 실행 이력 및 타임라인 (Execution History & Timeline)**
+*   **통합 타임라인 (Integrated Timeline):**
+    *   기존 저장된 '과거 이력(History)'과 현재 입력 중인 '최신 상태(Current)'를 하나의 타임라인 리스트로 통합하여 표시.
+    *   최상단에 `Current` 뱃지를 표시하여 현재 상태임을 강조.
+*   **단계별 결과 상세 (Step-level Results):**
+    *   단순히 케이스 전체의 Pass/Fail만 기록하는 것이 아니라, **각 스텝(Test Step)별 Pass/Fail 결과**를 이력 내에 스냅샷 형태로 저장 및 시각화.
+    *   실패한 단계가 어디인지 히스토리에서 즉시 파악 가능.
+
 #### E. 관리자 패널 (Admin Panel)
 *   **접근 권한:** Role이 'ADMIN'인 사용자만 접근 가능.
 *   **사용자 목록:** 이름, 이메일, 현재 권한, 계정 상태(Active/Inactive) 표시.
@@ -131,8 +142,8 @@
 | **Section** | `id`, `projectId`, `title` | 케이스를 묶는 폴더 개념. |
 | **TestCase** | `id`, `steps`(`[{step, expected}]`), `priority`, `type` | 테스트 시나리오 원본. |
 | **TestRun** | `id`, `caseIds`(`string[]`), `status` | 특정 시점의 테스트 실행 계획 (스냅샷 아님, ID 참조). |
-| **TestResult** | `id`, `runId`, `caseId`, `status`, `issues`(`[{label, url}]`) | 특정 실행 내 케이스의 수행 결과. |
-| **HistoryLog** | `id`, `entityId`, `changes`(`[{field, old, new}]`) | 데이터 변경 감사 로그. |
+| **TestResult** | `id`, `runId`, `caseId`, `status`, `stepResults`(`[{stepId, status}]`), `issues`(`[{label, url}]`) | 특정 실행 내 케이스의 수행 결과. **[New] 단계별 결과 포함.** |
+| **HistoryLog** | `id`, `entityId`, `action`(`CREATE`/`UPDATE`/`DELETE`), `changes` | 데이터 변경 감사 로그. 삭제(DELETE) 이력 포함. |
 
 ---
 

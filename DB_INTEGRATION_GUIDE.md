@@ -43,6 +43,15 @@ CREATE TABLE users (
   status VARCHAR(20)
 );
 
+-- 프로젝트 테이블
+CREATE TABLE projects (
+  id UUID PRIMARY KEY,
+  title VARCHAR(255),
+  description TEXT,
+  status VARCHAR(20),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- 테스트 케이스 테이블
 CREATE TABLE test_cases (
   id UUID PRIMARY KEY,
@@ -54,10 +63,36 @@ CREATE TABLE test_cases (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- 테스트 실행(Run) 테이블
+CREATE TABLE test_runs (
+  id UUID PRIMARY KEY,
+  project_id UUID REFERENCES projects(id),
+  title VARCHAR(255),
+  case_ids JSONB, -- 포함된 케이스 ID 목록
+  status VARCHAR(20),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 테스트 결과(Result) 테이블 [New]
+CREATE TABLE test_results (
+  id UUID PRIMARY KEY,
+  run_id UUID REFERENCES test_runs(id),
+  case_id UUID REFERENCES test_cases(id),
+  status VARCHAR(20), -- PASS, FAIL, BLOCK, NA
+  actual_result TEXT,
+  comment TEXT,
+  issues JSONB, -- 결함 링크 목록
+  step_results JSONB, -- [New] 단계별 수행 결과 (Step-level Results)
+  tester_id UUID REFERENCES users(id),
+  timestamp TIMESTAMP DEFAULT NOW()
+);
+
 -- 변경 이력 테이블
 CREATE TABLE history_logs (
   id UUID PRIMARY KEY,
+  entity_type VARCHAR(20), -- CASE, RESULT
   entity_id UUID,
+  action VARCHAR(20), -- CREATE, UPDATE, DELETE
   changes JSONB, -- 변경 사항(Diff) JSON
   modifier_id UUID,
   timestamp TIMESTAMP
@@ -97,7 +132,10 @@ getAllUsers: async (): Promise<User[]> => {
     *   현재 프론트엔드(`TestCaseService.saveCase`)에서 수행 중인 "변경 사항 비교(Diff)" 로직을 백엔드로 옮겨야 합니다.
     *   **이유:** 클라이언트는 조작될 수 있으므로, 데이터 무결성을 위해 서버가 원본 데이터와 수정 요청 데이터를 비교하여 로그를 남겨야 합니다.
 
-2.  **동시성 제어:**
+2.  **삭제 정책(Deletion Policy):**
+    *   섹션 삭제 시 하위 케이스를 함께 삭제하는 `Cascade Delete` 로직은 DB 레벨(Foreign Key Option) 또는 백엔드 트랜잭션으로 처리해야 안전합니다.
+
+3.  **동시성 제어:**
     *   5명이 동시에 같은 케이스를 수정할 경우를 대비해, "최근 수정 우선(Last Write Wins)" 또는 "낙관적 잠금(Optimistic Locking)" 전략이 필요합니다.
 
 ---
@@ -112,6 +150,8 @@ getAllUsers: async (): Promise<User[]> => {
 | **TestCase** | GET | `/projects/:id/cases` | 섹션 포함 트리 구조 반환 |
 | **TestCase** | POST | `/cases` | 케이스 생성 |
 | **TestCase** | PUT | `/cases/:id` | 수정 및 **History Log 자동 생성** |
+| **TestCase** | DELETE | `/cases/:id` | **[New]** 케이스 삭제 |
+| **Section** | DELETE | `/sections/:id` | **[New]** 섹션 및 하위 케이스 일괄 삭제 |
 | **TestRun** | POST | `/runs` | 실행 계획 생성 |
-| **Result** | POST | `/results` | 결과(Pass/Fail) 전송 |
+| **Result** | POST | `/results` | 결과(Pass/Fail/Steps) 전송 |
 | **History** | GET | `/cases/:id/history` | 변경 이력 조회 |
