@@ -176,6 +176,26 @@ export const TestCaseService = {
     return newSec;
   },
 
+  deleteSection: async (sectionId: string): Promise<void> => {
+    if (USE_SUPABASE) {
+      // Supabase cascade delete not implemented in this demo
+      await supabase.from('testCases').delete().eq('sectionId', sectionId);
+      await supabase.from('sections').delete().eq('id', sectionId);
+    } else {
+      // 1. Delete all cases in this section
+      let cases = getLocal<TestCase>(STORAGE_KEYS.CASES);
+      cases = cases.filter(c => c.sectionId !== sectionId);
+      setLocal(STORAGE_KEYS.CASES, cases);
+
+      // 2. Delete the section itself
+      let sections = getLocal<Section>(STORAGE_KEYS.SECTIONS);
+      sections = sections.filter(s => s.id !== sectionId);
+      setLocal(STORAGE_KEYS.SECTIONS, sections);
+      
+      return Promise.resolve();
+    }
+  },
+
   getCases: async (projectId: string): Promise<TestCase[]> => {
     if (USE_SUPABASE) {
       const { data } = await supabase.from('testCases').select('*').eq('projectId', projectId);
@@ -247,6 +267,17 @@ export const TestCaseService = {
       return Promise.resolve(newCase);
     }
     throw new Error("Save failed");
+  },
+
+  deleteCase: async (caseId: string): Promise<void> => {
+    if (USE_SUPABASE) {
+      await supabase.from('testCases').delete().eq('id', caseId);
+    } else {
+      let list = getLocal<TestCase>(STORAGE_KEYS.CASES);
+      list = list.filter(c => c.id !== caseId);
+      setLocal(STORAGE_KEYS.CASES, list);
+      return Promise.resolve();
+    }
   },
 
   importCases: async (projectId: string, cases: Partial<TestCase>[], user: User) => {

@@ -1233,6 +1233,28 @@ const TestCaseManager = ({ project }: { project: Project }) => {
     loadData();
     setSelectedCase(saved); // Load the saved case
   };
+  
+  const handleDeleteCase = async (caseId: string, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (confirm("정말 이 테스트 케이스를 삭제하시겠습니까?")) {
+      await TestCaseService.deleteCase(caseId);
+      loadData();
+      if (selectedCase?.id === caseId) {
+        setSelectedCase(null);
+        setIsEditing(false);
+      }
+    }
+  };
+
+  const handleDeleteSection = async (sectionId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const count = cases.filter(c => c.sectionId === sectionId).length;
+    if (confirm(`섹션을 삭제하시겠습니까?\n포함된 ${count}개의 테스트 케이스도 모두 영구 삭제됩니다.`)) {
+      await TestCaseService.deleteSection(sectionId);
+      loadData();
+      if (selectedSectionId === sectionId) setSelectedSectionId(null);
+    }
+  };
 
   const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
@@ -1253,10 +1275,18 @@ const TestCaseManager = ({ project }: { project: Project }) => {
           {sections.map(s => (
             <div 
               key={s.id}
-              className={`p-2 text-sm rounded cursor-pointer flex items-center gap-2 ${selectedSectionId === s.id ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
+              className={`p-2 text-sm rounded cursor-pointer flex items-center justify-between group ${selectedSectionId === s.id ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
               onClick={() => setSelectedSectionId(s.id)}
             >
-              <FolderTree size={16}/> {s.title}
+              <div className="flex items-center gap-2 overflow-hidden">
+                 <FolderTree size={16} className="flex-shrink-0"/> <span className="truncate">{s.title}</span>
+              </div>
+              <button 
+                onClick={(e) => handleDeleteSection(s.id, e)}
+                className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 size={14}/>
+              </button>
             </div>
           ))}
         </div>
@@ -1274,12 +1304,17 @@ const TestCaseManager = ({ project }: { project: Project }) => {
           {filteredCases.map(c => (
             <div 
               key={c.id} 
-              className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
+              className={`p-3 border-b cursor-pointer hover:bg-gray-50 group ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
               onClick={() => { setSelectedCase(c); setIsEditing(false); }}
             >
-              <div className="text-xs text-gray-500 mb-1 flex justify-between">
-                <span>{c.id.substr(0,4)}</span>
-                <span className={`px-1 rounded text-[10px] ${c.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>{c.priority}</span>
+              <div className="text-xs text-gray-500 mb-1 flex justify-between items-start">
+                <div className="flex gap-2 items-center">
+                  <span>{c.id.substr(0,4)}</span>
+                  <span className={`px-1 rounded text-[10px] ${c.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>{c.priority}</span>
+                </div>
+                <button onClick={(e) => handleDeleteCase(c.id, e)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <Trash2 size={12}/>
+                </button>
               </div>
               <div className="font-medium text-sm line-clamp-2">{c.title}</div>
             </div>
@@ -1394,12 +1429,20 @@ const TestCaseManager = ({ project }: { project: Project }) => {
                   </div>
 
                 </div>
-                <button 
-                  onClick={() => { setEditForm(JSON.parse(JSON.stringify(selectedCase))); setIsEditing(true); }}
-                  className="px-3 py-1.5 border rounded hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
-                >
-                  <Edit size={16}/> 수정
-                </button>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => handleDeleteCase(selectedCase.id)}
+                    className="px-3 py-1.5 border rounded hover:bg-red-50 text-red-600 flex items-center gap-2 text-sm font-semibold"
+                  >
+                    <Trash2 size={16}/> 삭제
+                  </button>
+                  <button 
+                    onClick={() => { setEditForm(JSON.parse(JSON.stringify(selectedCase))); setIsEditing(true); }}
+                    className="px-3 py-1.5 border rounded hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                  >
+                    <Edit size={16}/> 수정
+                  </button>
+                </div>
              </div>
              
              <div className="space-y-6">
@@ -1487,7 +1530,7 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
   
   // [NEW] Execution History State
-  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(true);
   const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
 
   const loadRuns = async () => {
@@ -1555,7 +1598,7 @@ const TestRunner = ({ project }: { project: Project }) => {
       setStepResults([]);
       setCurrentResultHistory([]);
     }
-    setHistoryExpanded(false);
+    setHistoryExpanded(true);
   };
 
   const autoSave = async (
@@ -1563,7 +1606,7 @@ const TestRunner = ({ project }: { project: Project }) => {
     targetActual: string, 
     targetComment: string, 
     targetDefectLabel: string, 
-    targetDefectUrl: string,
+    targetDefectUrl: string, 
     targetStepResults: { stepId: string, status: TestStatus }[]
   ) => {
     if (!selectedRun || !runCases[activeCaseIndex] || !user) return;
@@ -1647,6 +1690,21 @@ const TestRunner = ({ project }: { project: Project }) => {
   const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
   const stats = getRunStats();
+
+  // Combine current state with history to show a full timeline including "now"
+  const fullHistoryTimeline: (ExecutionHistoryItem & { isCurrent?: boolean })[] = status === 'UNTESTED' ? [] : [
+    {
+      status,
+      actualResult: actual,
+      comment,
+      testerId: user?.id || 'unknown',
+      timestamp: new Date().toISOString(),
+      issues: (defectLabel && defectUrl) ? [{id: 'temp', label: defectLabel, url: defectUrl}] : [],
+      stepResults,
+      isCurrent: true
+    },
+    ...currentResultHistory.map(h => ({ ...h, isCurrent: false }))
+  ];
 
   if (!selectedRun) {
     return (
@@ -1911,44 +1969,85 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
               </div>
               
-              {/* [NEW] Execution History */}
+              {/* [NEW] Execution History Timeline */}
               <div className="mt-8 border-t pt-4">
                 <button 
                   onClick={() => setHistoryExpanded(!historyExpanded)}
                   className="w-full flex justify-between items-center text-gray-500 font-bold hover:text-gray-700 p-2"
                 >
-                  <span className="flex items-center gap-2"><RotateCcw size={16}/> 실행 이력 (Execution History)</span>
+                  <span className="flex items-center gap-2"><RotateCcw size={16}/> 실행 이력 (Execution History Timeline)</span>
                   {historyExpanded ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
                 </button>
                 
                 {historyExpanded && (
-                  <div className="mt-2 space-y-2 bg-gray-50 rounded p-4">
-                    {currentResultHistory.length === 0 && <div className="text-center text-gray-400 text-sm">이전 실행 기록이 없습니다.</div>}
-                    {currentResultHistory.map((h, idx) => (
-                      <div key={idx} className="bg-white border rounded p-3 text-sm shadow-sm">
-                        <div className="flex justify-between mb-2">
-                           <div className="flex items-center gap-2">
-                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                               h.status === 'PASS' ? 'bg-green-100 text-green-700' : 
-                               h.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                             }`}>{h.status}</span>
-                             <span className="font-bold text-gray-700">{getUserName(h.testerId)}</span>
-                           </div>
-                           <span className="text-xs text-gray-400">{new Date(h.timestamp).toLocaleString()}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-gray-600">
-                          {h.actualResult && <div><span className="font-semibold">Actual:</span> {h.actualResult}</div>}
-                          {h.comment && <div><span className="font-semibold">Comment:</span> {h.comment}</div>}
-                        </div>
-                        {h.issues && h.issues.length > 0 && (
-                          <div className="mt-2 pt-2 border-t flex gap-2">
-                             {h.issues.map(issue => (
-                               <a key={issue.id} href={issue.url} target="_blank" className="text-red-600 text-xs font-bold flex items-center gap-1 hover:underline">
-                                 <Bug size={12}/> {issue.label}
-                               </a>
-                             ))}
+                  <div className="mt-2 space-y-4 bg-gray-50 rounded p-4 relative">
+                    <div className="absolute top-4 bottom-4 left-6 w-0.5 bg-gray-200"></div>
+
+                    {fullHistoryTimeline.length === 0 && <div className="text-center text-gray-400 text-sm py-4">아직 실행 기록이 없습니다.</div>}
+                    
+                    {fullHistoryTimeline.map((h, idx) => (
+                      <div key={idx} className="relative pl-8">
+                        <div className={`absolute left-4 top-3 w-4 h-4 rounded-full border-2 border-white shadow-sm -ml-2 z-10 ${
+                            h.status === 'PASS' ? 'bg-green-500' : 
+                            h.status === 'FAIL' ? 'bg-red-500' : 
+                            h.status === 'BLOCK' ? 'bg-gray-800' : 'bg-gray-400'
+                        }`}></div>
+
+                        <div className={`bg-white border rounded p-4 shadow-sm ${h.isCurrent ? 'ring-2 ring-primary ring-offset-2' : ''}`}>
+                          <div className="flex justify-between mb-2 items-start">
+                             <div className="flex items-center gap-2">
+                               {h.isCurrent && <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">Current</span>}
+                               <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                 h.status === 'PASS' ? 'bg-green-100 text-green-700' : 
+                                 h.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                               }`}>{h.status}</span>
+                               <span className="font-bold text-gray-700 text-sm">{getUserName(h.testerId)}</span>
+                             </div>
+                             <span className="text-xs text-gray-400">{new Date(h.timestamp).toLocaleString()}</span>
                           </div>
-                        )}
+                          
+                          <div className="space-y-2 mb-2">
+                             {(h.actualResult || h.comment) && (
+                               <div className="bg-gray-50 p-2 rounded text-sm text-gray-700">
+                                  {h.actualResult && <div className="mb-1"><span className="font-bold text-gray-500 text-xs">ACTUAL:</span> {h.actualResult}</div>}
+                                  {h.comment && <div><span className="font-bold text-gray-500 text-xs">COMMENT:</span> {h.comment}</div>}
+                               </div>
+                             )}
+                             
+                             {/* [NEW] Step Results in History */}
+                             {h.stepResults && h.stepResults.length > 0 && (
+                               <div className="mt-2">
+                                  <div className="text-xs font-bold text-gray-400 mb-1">STEP DETAILS</div>
+                                  <div className="grid grid-cols-1 gap-1">
+                                    {activeCase.steps.map((step, sIdx) => {
+                                       const sRes = h.stepResults?.find(sr => sr.stepId === step.id);
+                                       if (!sRes) return null; // Don't show untested steps to save space
+                                       return (
+                                         <div key={step.id} className="flex items-center gap-2 text-xs">
+                                            <span className={`w-14 font-mono font-bold text-center rounded px-1 ${
+                                              sRes.status === 'PASS' ? 'bg-green-100 text-green-700' :
+                                              sRes.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                                            }`}>{sRes.status}</span>
+                                            <span className="text-gray-500 font-semibold">Step {sIdx + 1}:</span>
+                                            <span className="truncate text-gray-600">{step.step.substring(0, 50)}...</span>
+                                         </div>
+                                       );
+                                    })}
+                                  </div>
+                               </div>
+                             )}
+                          </div>
+
+                          {h.issues && h.issues.length > 0 && (
+                            <div className="mt-2 pt-2 border-t flex gap-2">
+                               {h.issues.map(issue => (
+                                 <a key={issue.id} href={issue.url} target="_blank" className="text-red-600 text-xs font-bold flex items-center gap-1 hover:underline">
+                                   <Bug size={12}/> {issue.label}
+                                 </a>
+                               ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
