@@ -4,7 +4,7 @@ import {
 import { supabase } from './supabaseClient';
 
 // Enable Supabase (Set to false for local demo stability)
-const USE_SUPABASE = false; 
+const USE_SUPABASE = true; 
 
 const STORAGE_KEYS = {
   USERS: 'app_users',
