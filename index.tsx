@@ -21,9 +21,9 @@ import {
 
 const AuthContext = createContext<{
   user: User | null;
-  login: (email: string) => void;
+  login: (email: string) => Promise<void>;
   logout: () => void;
-}>({ user: null, login: () => {}, logout: () => {} });
+}>({ user: null, login: async () => {}, logout: () => {} });
 
 // --- Utilities for Import/Export ---
 
@@ -140,10 +140,13 @@ const normalizeType = (val: string): 'FUNCTIONAL' | 'UI' | 'PERFORMANCE' | 'SECU
 const LoginScreen = () => {
   const { login } = useContext(AuthContext);
   const [email, setEmail] = useState('admin@company.com');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    login(email);
+    setLoading(true);
+    await login(email);
+    setLoading(false);
   };
 
   return (
@@ -166,7 +169,9 @@ const LoginScreen = () => {
             <p>테스트 계정: jane@company.com (내부 QA)</p>
             <p>테스트 계정: ext@vendor.com (외부 QA)</p>
           </div>
-          <button type="submit" className="w-full bg-primary text-white py-2 rounded hover:bg-blue-700">로그인</button>
+          <button disabled={loading} type="submit" className="w-full bg-primary text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+            {loading ? '로그인 중...' : '로그인'}
+          </button>
         </form>
       </div>
     </div>
@@ -233,6 +238,7 @@ const ProjectModal = ({
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [status, setStatus] = useState<ProjectStatus>('ACTIVE');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if(isOpen) {
@@ -291,13 +297,18 @@ const ProjectModal = ({
         <div className="flex justify-end gap-2 mt-6">
           <button onClick={onClose} className="px-3 py-1 text-gray-500 hover:bg-gray-100 rounded">취소</button>
           <button 
-            onClick={() => {
-              if(title.trim()) { onSubmit(title, desc, status); onClose(); }
+            onClick={async () => {
+              if(title.trim()) { 
+                setLoading(true);
+                await onSubmit(title, desc, status); 
+                setLoading(false);
+                onClose(); 
+              }
             }} 
             className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 disabled:opacity-50 font-bold"
-            disabled={!title.trim()}
+            disabled={!title.trim() || loading}
           >
-            {initialData ? '수정 완료' : '프로젝트 생성'}
+            {loading ? '처리 중...' : (initialData ? '수정 완료' : '프로젝트 생성')}
           </button>
         </div>
       </div>
@@ -316,16 +327,23 @@ const RunCreationModal = ({
   const [sections, setSections] = useState<Section[]>([]);
   const [allCases, setAllCases] = useState<TestCase[]>([]);
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set());
+  const [loadingData, setLoadingData] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setTitle('');
       setMode('ALL');
-      const s = TestCaseService.getSections(project.id);
-      const c = TestCaseService.getCases(project.id);
-      setSections(s);
-      setAllCases(c);
-      setSelectedCaseIds(new Set(c.map(tc => tc.id)));
+      setLoadingData(true);
+      Promise.all([
+        TestCaseService.getSections(project.id),
+        TestCaseService.getCases(project.id)
+      ]).then(([s, c]) => {
+        setSections(s);
+        setAllCases(c);
+        setSelectedCaseIds(new Set(c.map(tc => tc.id)));
+        setLoadingData(false);
+      });
     }
   }, [isOpen, project]);
 
@@ -350,7 +368,7 @@ const RunCreationModal = ({
     setSelectedCaseIds(newSet);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!title.trim()) {
       alert("실행 계획 제목을 입력해주세요.");
       return;
@@ -362,7 +380,9 @@ const RunCreationModal = ({
       alert("최소 1개 이상의 테스트 케이스를 선택해야 합니다.");
       return;
     }
-    onSubmit(title, finalIds);
+    setCreating(true);
+    await onSubmit(title, finalIds);
+    setCreating(false);
     onClose();
   };
 
@@ -397,7 +417,9 @@ const RunCreationModal = ({
               </label>
             </div>
           </div>
-          {mode === 'CUSTOM' && (
+          {loadingData ? (
+             <div className="p-4 text-center text-gray-500">데이터 로딩 중...</div>
+          ) : mode === 'CUSTOM' && (
             <div className="border rounded h-64 overflow-y-auto p-2 bg-gray-50">
               {sections.length === 0 && allCases.length === 0 && <p className="text-sm text-gray-500 p-2">데이터가 없습니다.</p>}
               {sections.map(sec => {
@@ -450,7 +472,9 @@ const RunCreationModal = ({
         </div>
         <div className="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 border rounded hover:bg-white text-gray-700">취소</button>
-          <button onClick={handleSubmit} className="px-4 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600 shadow-sm">실행 계획 생성</button>
+          <button disabled={creating} onClick={handleSubmit} className="px-4 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600 shadow-sm disabled:opacity-50">
+            {creating ? '생성 중...' : '실행 계획 생성'}
+          </button>
         </div>
       </div>
     </div>
@@ -476,8 +500,7 @@ const ReportModal = ({
 
   useEffect(() => {
     if (isOpen) {
-      const allRuns = RunService.getAll(project.id);
-      setRuns(allRuns);
+      RunService.getAll(project.id).then(setRuns);
       setSelectedRunId('');
       setReportData(null);
     }
@@ -487,23 +510,26 @@ const ReportModal = ({
     if (selectedRunId) {
       const run = runs.find(r => r.id === selectedRunId);
       if (run) {
-        const results = RunService.getResults(run.id);
-        const pass = results.filter(r => r.status === 'PASS').length;
-        const fail = results.filter(r => r.status === 'FAIL').length;
-        const untested = (run.caseIds?.length || 0) - results.length;
-        
-        const allDefects: { issue: Issue, caseTitle: string }[] = [];
-        const cases = TestCaseService.getCases(project.id);
-        const caseMap = new Map(cases.map(c => [c.id, c.title]));
+        Promise.all([
+          RunService.getResults(run.id),
+          TestCaseService.getCases(project.id)
+        ]).then(([results, cases]) => {
+            const pass = results.filter(r => r.status === 'PASS').length;
+            const fail = results.filter(r => r.status === 'FAIL').length;
+            const untested = (run.caseIds?.length || 0) - results.length;
+            
+            const allDefects: { issue: Issue, caseTitle: string }[] = [];
+            const caseMap = new Map(cases.map(c => [c.id, c.title]));
 
-        results.forEach(res => {
-          if (res.issues && res.issues.length > 0) {
-            res.issues.forEach(issue => {
-              allDefects.push({ issue, caseTitle: caseMap.get(res.caseId) || 'Unknown Case' });
+            results.forEach(res => {
+              if (res.issues && res.issues.length > 0) {
+                res.issues.forEach(issue => {
+                  allDefects.push({ issue, caseTitle: caseMap.get(res.caseId) || 'Unknown Case' });
+                });
+              }
             });
-          }
+            setReportData({ run, results, pass, fail, untested, allDefects });
         });
-        setReportData({ run, results, pass, fail, untested, allDefects });
       }
     }
   }, [selectedRunId, runs, project]);
@@ -614,14 +640,18 @@ const Dashboard = ({ project }: { project: Project }) => {
   const [isReportModalOpen, setReportModalOpen] = useState(false);
 
   useEffect(() => {
-    const cases = TestCaseService.getCases(project.id);
-    const runs = RunService.getAll(project.id);
-    setStats({
-      total: cases.length,
-      automated: 0,
-      runs: runs.length,
-      passRate: 75 
+    Promise.all([
+      TestCaseService.getCases(project.id),
+      RunService.getAll(project.id)
+    ]).then(([cases, runs]) => {
+      setStats({
+        total: cases.length,
+        automated: 0,
+        runs: runs.length,
+        passRate: 75 
+      });
     });
+    
     setChartData([
       { name: '월', passed: 40, failed: 24 },
       { name: '화', passed: 30, failed: 13 },
@@ -689,6 +719,7 @@ const ImportExportModal = ({
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Record<string, number>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
   const APP_FIELDS = [
     { key: 'section', label: '섹션 (Section/Folder)', required: false },
@@ -751,7 +782,7 @@ const ImportExportModal = ({
     }
   };
 
-  const finalizeImport = () => {
+  const finalizeImport = async () => {
     if (!user) return;
     if (mapping['title'] === undefined) {
       alert("제목(Title) 컬럼은 반드시 매핑해야 합니다.");
@@ -798,7 +829,9 @@ const ImportExportModal = ({
       alert("가져올 케이스가 없습니다.");
       return;
     }
-    (TestCaseService as any).importCases(project.id, newCases, user);
+    setImporting(true);
+    await (TestCaseService as any).importCases(project.id, newCases, user);
+    setImporting(false);
     onImportSuccess();
     onClose();
     alert(`${newCases.length}개의 테스트 케이스를 성공적으로 가져왔습니다.`);
@@ -913,7 +946,9 @@ const ImportExportModal = ({
         <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
           <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">닫기</button>
           {tab === 'IMPORT' && step === 'MAP' && (
-             <button onClick={finalizeImport} className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 font-bold flex items-center gap-2"><Download size={16} /> 가져오기 완료</button>
+             <button disabled={importing} onClick={finalizeImport} className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 font-bold flex items-center gap-2 disabled:opacity-50">
+               {importing ? '처리 중...' : <><Download size={16} /> 가져오기 완료</>}
+             </button>
           )}
         </div>
       </div>
@@ -933,24 +968,33 @@ const TestCaseManager = ({ project }: { project: Project }) => {
   const [isSectionModalOpen, setSectionModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<TestCase>>({});
   const [historyLogs, setHistoryLogs] = useState<HistoryLog[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => { loadData(); }, [project]);
 
   const loadData = () => {
-    setSections(TestCaseService.getSections(project.id));
-    setCases(TestCaseService.getCases(project.id));
+    setLoading(true);
+    Promise.all([
+      TestCaseService.getSections(project.id),
+      TestCaseService.getCases(project.id)
+    ]).then(([s, c]) => {
+      setSections(s);
+      setCases(c);
+      setLoading(false);
+    });
   };
 
-  const handleCreateSection = (name: string) => {
-    TestCaseService.createSection({ projectId: project.id, title: name });
+  const handleCreateSection = async (name: string) => {
+    await TestCaseService.createSection({ projectId: project.id, title: name });
     loadData();
     setSectionModalOpen(false);
   };
 
-  const handleSelectCase = (tc: TestCase) => {
+  const handleSelectCase = async (tc: TestCase) => {
     setSelectedCase(tc);
     setIsEditing(false);
-    setHistoryLogs(HistoryService.getLogs(tc.id));
+    const logs = await HistoryService.getLogs(tc.id);
+    setHistoryLogs(logs);
   };
 
   const handleCreateCase = () => {
@@ -971,13 +1015,14 @@ const TestCaseManager = ({ project }: { project: Project }) => {
     setIsEditing(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.title || !user) return;
-    const saved = TestCaseService.saveCase(formData, user);
+    const saved = await TestCaseService.saveCase(formData, user);
     setIsEditing(false);
     setSelectedCase(saved);
     loadData();
-    setHistoryLogs(HistoryService.getLogs(saved.id));
+    const logs = await HistoryService.getLogs(saved.id);
+    setHistoryLogs(logs);
   };
 
   const filteredCases = selectedSectionId ? cases.filter(c => c.sectionId === selectedSectionId) : cases;
@@ -999,7 +1044,7 @@ const TestCaseManager = ({ project }: { project: Project }) => {
         </div>
         <div className="w-1/3 border-r bg-white overflow-y-auto">
           <div className="p-4 border-b flex justify-between items-center flex-wrap gap-2">
-            <h3 className="font-semibold text-gray-700">{filteredCases.length}개의 케이스</h3>
+            <h3 className="font-semibold text-gray-700">{loading ? '로딩 중...' : `${filteredCases.length}개의 케이스`}</h3>
             <div className="flex gap-2">
               {user?.role !== 'EXTERNAL' && (
                 <>
@@ -1098,17 +1143,23 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [formIssues, setFormIssues] = useState<Issue[]>([]);
   const [isRunModalOpen, setRunModalOpen] = useState(false);
 
-  useEffect(() => { setRuns(RunService.getAll(project.id)); }, [project]);
+  useEffect(() => { 
+    RunService.getAll(project.id).then(setRuns); 
+  }, [project]);
 
   useEffect(() => {
     if (activeRun) {
-      const allCases = TestCaseService.getCases(project.id);
-      const allSections = TestCaseService.getSections(project.id);
-      const included = allCases.filter(c => activeRun.caseIds.includes(c.id));
-      setCasesInRun(included);
-      setRunResults(RunService.getResults(activeRun.id));
-      const includedSectionIds = new Set(included.map(c => c.sectionId));
-      setSectionsInRun(allSections.filter(s => includedSectionIds.has(s.id)));
+      Promise.all([
+        TestCaseService.getCases(project.id),
+        TestCaseService.getSections(project.id),
+        RunService.getResults(activeRun.id)
+      ]).then(([allCases, allSections, results]) => {
+         const included = allCases.filter(c => activeRun.caseIds.includes(c.id));
+         setCasesInRun(included);
+         setRunResults(results);
+         const includedSectionIds = new Set(included.map(c => c.sectionId));
+         setSectionsInRun(allSections.filter(s => includedSectionIds.has(s.id)));
+      });
     }
   }, [activeRun, project]);
 
@@ -1140,9 +1191,10 @@ const TestRunner = ({ project }: { project: Project }) => {
     setFormStatus(computed);
   }, [stepStatuses]);
 
-  const handleCreateRun = (title: string, caseIds: string[]) => {
-    const newRun = RunService.create({ projectId: project.id, title, status: 'OPEN', assignedToId: user?.id, caseIds: caseIds });
-    setRuns([...runs, newRun]);
+  const handleCreateRun = async (title: string, caseIds: string[]) => {
+    const newRun = await RunService.create({ projectId: project.id, title, status: 'OPEN', assignedToId: user?.id, caseIds: caseIds });
+    setRuns([newRun, ...runs]); // Prepend logic might differ based on sort order
+    RunService.getAll(project.id).then(setRuns); // Refresh to be safe
     setRunModalOpen(false);
   };
 
@@ -1154,14 +1206,14 @@ const TestRunner = ({ project }: { project: Project }) => {
     setExecutionMode(true);
   };
 
-  const submitResult = (autoNext: boolean = false, statusOverride?: TestStatus) => {
+  const submitResult = async (autoNext: boolean = false, statusOverride?: TestStatus) => {
     if (!activeCaseId || !activeRun || !user) return;
     
     // Use overridden status if provided (e.g., for Pass & Next), otherwise use form state
     const statusToSave = statusOverride || formStatus;
     
     const stepResultsArray = Object.entries(stepStatuses).map(([stepId, status]) => ({ stepId, status }));
-    RunService.saveResult({
+    await RunService.saveResult({
       runId: activeRun.id, 
       caseId: activeCaseId, 
       status: statusToSave, 
@@ -1171,7 +1223,9 @@ const TestRunner = ({ project }: { project: Project }) => {
       stepResults: stepResultsArray, 
       issues: formIssues.filter(i => i.label.trim() !== '')
     });
-    setRunResults(RunService.getResults(activeRun.id));
+    
+    const updatedResults = await RunService.getResults(activeRun.id);
+    setRunResults(updatedResults);
     
     if (autoNext) {
       const currentIndex = casesInRun.findIndex(c => c.id === activeCaseId);
@@ -1472,46 +1526,60 @@ const TestRunner = ({ project }: { project: Project }) => {
       <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold">테스트 실행 목록</h2>{user?.role !== 'EXTERNAL' && (<button onClick={() => setRunModalOpen(true)} className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={16} /> 새 실행 생성</button>)}</div>
       <div className="grid gap-4">
         {runs.map(run => {
-           const results = RunService.getResults(run.id);
-           const total = run.caseIds.length;
-           const pass = results.filter(r => r.status === 'PASS').length;
-           const fail = results.filter(r => r.status === 'FAIL').length;
-           const others = results.filter(r => r.status === 'BLOCK' || r.status === 'NA').length;
-           const untested = total > 0 ? total - (pass + fail + others) : 0;
-           
-           const passPct = total > 0 ? (pass / total) * 100 : 0;
-           const failPct = total > 0 ? (fail / total) * 100 : 0;
-           const otherPct = total > 0 ? (others / total) * 100 : 0;
-
-           return (
-             <div key={run.id} className="bg-white p-5 rounded-lg shadow border hover:shadow-md transition cursor-pointer" onClick={() => setActiveRun(run)}>
-               <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-                       {run.title}
-                       {run.status === 'COMPLETED' && <CheckCircle size={16} className="text-green-500" />}
-                    </h3>
-                    <p className="text-sm text-gray-500 mt-1">생성일: {new Date(run.createdAt).toLocaleDateString()} · 총 {total}개 케이스</p>
-                  </div>
-                  <ChevronRight className="text-gray-400" />
-               </div>
-               
-               {/* Stacked Progress Bar */}
-               <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
-                  {pass > 0 && <div style={{width: `${passPct}%`}} className="bg-green-500 h-full" title={`Pass: ${pass}`} />}
-                  {fail > 0 && <div style={{width: `${failPct}%`}} className="bg-red-500 h-full" title={`Fail: ${fail}`} />}
-                  {others > 0 && <div style={{width: `${otherPct}%`}} className="bg-gray-800 h-full" title={`Others: ${others}`} />}
-                  {/* Untested uses the background color */}
-               </div>
-               <div className="flex justify-between mt-2 text-xs font-semibold text-gray-500">
-                  <span className="text-green-600">{Math.round(passPct)}% Pass</span>
-                  <span>{untested} Untested</span>
-               </div>
-             </div>
-           );
+           // We need to fetch results to show progress bar, but for list view doing it individually is expensive.
+           // In a real app we'd join this in the backend. 
+           // For this quick port, let's fetch results here in a small component or just show generic info.
+           // Better: Let's create a wrapper component for the card to fetch its own stats.
+           return <RunCard key={run.id} run={run} />;
         })}
       </div>
       <RunCreationModal isOpen={isRunModalOpen} onClose={() => setRunModalOpen(false)} project={project} onSubmit={handleCreateRun} />
+    </div>
+  );
+};
+
+// Extracted Component to handle async stats fetching for each run card
+const RunCard = ({ run }: { run: TestRun }) => {
+  const [results, setResults] = useState<TestResult[]>([]);
+  
+  useEffect(() => {
+    RunService.getResults(run.id).then(setResults);
+  }, [run.id]);
+
+  const total = run.caseIds.length;
+  const pass = results.filter(r => r.status === 'PASS').length;
+  const fail = results.filter(r => r.status === 'FAIL').length;
+  const others = results.filter(r => r.status === 'BLOCK' || r.status === 'NA').length;
+  const untested = total > 0 ? total - (pass + fail + others) : 0;
+  
+  const passPct = total > 0 ? (pass / total) * 100 : 0;
+  const failPct = total > 0 ? (fail / total) * 100 : 0;
+  const otherPct = total > 0 ? (others / total) * 100 : 0;
+
+  return (
+    <div className="bg-white p-5 rounded-lg shadow border hover:shadow-md transition cursor-pointer">
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+              {run.title}
+              {run.status === 'COMPLETED' && <CheckCircle size={16} className="text-green-500" />}
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">생성일: {new Date(run.createdAt).toLocaleDateString()} · 총 {total}개 케이스</p>
+        </div>
+        <ChevronRight className="text-gray-400" />
+      </div>
+      
+      {/* Stacked Progress Bar */}
+      <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
+        {pass > 0 && <div style={{width: `${passPct}%`}} className="bg-green-500 h-full" title={`Pass: ${pass}`} />}
+        {fail > 0 && <div style={{width: `${failPct}%`}} className="bg-red-500 h-full" title={`Fail: ${fail}`} />}
+        {others > 0 && <div style={{width: `${otherPct}%`}} className="bg-gray-800 h-full" title={`Others: ${others}`} />}
+        {/* Untested uses the background color */}
+      </div>
+      <div className="flex justify-between mt-2 text-xs font-semibold text-gray-500">
+        <span className="text-green-600">{Math.round(passPct)}% Pass</span>
+        <span>{untested} Untested</span>
+      </div>
     </div>
   );
 };
@@ -1526,15 +1594,16 @@ const AdminPanel = () => {
   const [newUserRole, setNewUserRole] = useState<Role>('INTERNAL');
 
   useEffect(() => {
-    setUsers(AuthService.getAllUsers());
+    AuthService.getAllUsers().then(setUsers);
   }, []);
 
-  const handleUpdate = (updatedUser: User) => {
-    AuthService.updateUser(updatedUser);
-    setUsers(AuthService.getAllUsers());
+  const handleUpdate = async (updatedUser: User) => {
+    await AuthService.updateUser(updatedUser);
+    const refreshed = await AuthService.getAllUsers();
+    setUsers(refreshed);
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if(!newUserEmail || !newUserName) return;
     const newUser: User = {
         id: Math.random().toString(36).substr(2, 9),
@@ -1543,8 +1612,9 @@ const AdminPanel = () => {
         role: newUserRole,
         status: 'ACTIVE'
     };
-    AuthService.createUser(newUser);
-    setUsers(AuthService.getAllUsers());
+    await AuthService.createUser(newUser);
+    const refreshed = await AuthService.getAllUsers();
+    setUsers(refreshed);
     setIsModalOpen(false);
     setNewUserEmail('');
     setNewUserName('');
@@ -1644,18 +1714,22 @@ const App = () => {
   // Load Projects
   useEffect(() => {
     if (user) {
-        const all = ProjectService.getAll();
-        setProjects(all);
-        if (all.length > 0 && !activeProject) {
-            setActiveProject(all[0]);
-        }
+        ProjectService.getAll().then(all => {
+          setProjects(all);
+          if (all.length > 0 && !activeProject) {
+              setActiveProject(all[0]);
+          }
+        });
     }
   }, [user]);
 
-  const login = (email: string) => {
-    const u = AuthService.login(email);
-    if (u) setUser(u);
-    else alert("사용자를 찾을 수 없습니다. (초기 데이터: admin@company.com)");
+  const login = async (email: string) => {
+    const u = await AuthService.login(email);
+    if (u) {
+      setUser(u);
+    } else {
+      alert("사용자를 찾을 수 없습니다. (초기 데이터: admin@company.com)");
+    }
   };
 
   const logout = () => {
@@ -1663,8 +1737,8 @@ const App = () => {
     setUser(null);
   };
 
-  const handleCreateProject = (title: string, desc: string, status: ProjectStatus) => {
-     const newP = ProjectService.create({ title, description: desc, status });
+  const handleCreateProject = async (title: string, desc: string, status: ProjectStatus) => {
+     const newP = await ProjectService.create({ title, description: desc, status });
      setProjects([...projects, newP]);
      setActiveProject(newP);
   };
@@ -1686,7 +1760,7 @@ const App = () => {
                 {/* Project Dropdown */}
                 <div className="hidden group-hover:block absolute top-full left-0 w-full bg-white text-gray-900 shadow-xl rounded z-50 mt-1 overflow-hidden">
                     {projects.map(p => (
-                        <div key={p.id} onClick={() => {setActiveProject(p); setActiveTab('DASHBOARD');}} className="p-2 hover:bg-blue-50 cursor-pointer text-sm font-medium border-b last:border-0">
+                        <div key={p.id} onClick={() => {setActiveProject(p); setActiveTab('DASHBOARD');}} className="p-2 hover:bg-blue-50 cursor-pointer text-sm font-medium border-b last:border-0 text-gray-900">
                             {p.title}
                         </div>
                     ))}

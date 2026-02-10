@@ -1,15 +1,10 @@
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Issue 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, Issue, Role 
 } from './types';
 import { supabase } from './supabaseClient';
 
-/**
- * [SUPABASE MIGRATION GUIDE]
- * 1. Supabase 대시보드에서 SQL 스크립트를 실행하여 테이블을 생성하세요.
- * 2. `supabaseClient.ts`에 URL과 Key를 입력하세요.
- * 3. 아래 `USE_SUPABASE` 상수를 true로 변경하세요.
- */
-const USE_SUPABASE = false; 
+// Enable Supabase
+const USE_SUPABASE = true; 
 
 const STORAGE_KEYS = {
   USERS: 'app_users',
@@ -26,11 +21,412 @@ const STORAGE_KEYS = {
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const now = () => new Date().toISOString();
 
-// --- Initial Seed Data (Only for LocalStorage) ---
-const seedData = () => {
-  try {
-    if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-      const users: User[] = [
-        { id: 'u1', name: '관리자(Admin)', email: 'admin@company.com', role: 'ADMIN', status: 'ACTIVE' },
-        { id: 'u2', name: '김철수(QA)', email: 'jane@company.com', role: 'INTERNAL', status: 'ACTIVE' },
-        { id: 'u3', name: '이영희(파트너)', email: 'ext
+// --- LocalStorage Helpers (Wrapped in Promise for consistency) ---
+const getLocal = <T>(key: string): T[] => {
+  const data = localStorage.getItem(key);
+  return data ? JSON.parse(data) : [];
+};
+const setLocal = (key: string, data: any[]) => localStorage.setItem(key, JSON.stringify(data));
+
+// --- Services ---
+
+export const AuthService = {
+  getAllUsers: async (): Promise<User[]> => {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) { console.error(error); return []; }
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<User>(STORAGE_KEYS.USERS));
+    }
+  },
+
+  getCurrentUser: (): User | null => {
+    // Current user state is still kept local for session persistence in this simple app
+    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    return data ? JSON.parse(data) : null;
+  },
+
+  login: async (email: string): Promise<User | null> => {
+    if (USE_SUPABASE) {
+      // 1. Try to find user
+      const { data, error } = await supabase.from('users').select('*').eq('email', email).single();
+      
+      if (data) {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(data));
+        return data;
+      }
+
+      // 2. If not found (and allows auto-creation for testing), create one? 
+      // For now, let's strictly return null if not found, OR create a temp user if it's the first run
+      // To mimic the Mock behavior (which had pre-seeded users), we might want to insert if empty.
+      // But let's assume users are seeded via SQL or Admin panel.
+      
+      // Fallback: If it's the very first admin login and table is empty, create admin
+      const { count } = await supabase.from('users').select('*', { count: 'exact', head: true });
+      if (count === 0 && email === 'admin@company.com') {
+        const admin: User = { id: generateId(), name: 'Admin', email, role: 'ADMIN', status: 'ACTIVE' };
+        await supabase.from('users').insert(admin);
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(admin));
+        return admin;
+      }
+      
+      return null;
+    } else {
+      // Mock Logic
+      const users = getLocal<User>(STORAGE_KEYS.USERS);
+      // Seed if empty
+      if (users.length === 0) {
+        const seed = [
+          { id: 'u1', name: '관리자(Admin)', email: 'admin@company.com', role: 'ADMIN', status: 'ACTIVE' },
+          { id: 'u2', name: '김철수(QA)', email: 'jane@company.com', role: 'INTERNAL', status: 'ACTIVE' },
+          { id: 'u3', name: '이영희(파트너)', email: 'ext@vendor.com', role: 'EXTERNAL', status: 'ACTIVE' },
+        ] as User[];
+        setLocal(STORAGE_KEYS.USERS, seed);
+        const u = seed.find(u => u.email === email);
+        if(u) localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(u));
+        return u || null;
+      }
+      const user = users.find(u => u.email === email);
+      if (user) localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
+      return Promise.resolve(user || null);
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+  },
+
+  updateUser: async (user: User) => {
+    if (USE_SUPABASE) {
+      await supabase.from('users').update(user).eq('id', user.id);
+    } else {
+      const users = getLocal<User>(STORAGE_KEYS.USERS);
+      const idx = users.findIndex(u => u.id === user.id);
+      if (idx !== -1) {
+        users[idx] = user;
+        setLocal(STORAGE_KEYS.USERS, users);
+      }
+    }
+  },
+
+  createUser: async (user: User) => {
+    if (USE_SUPABASE) {
+      await supabase.from('users').insert(user);
+    } else {
+      const users = getLocal<User>(STORAGE_KEYS.USERS);
+      users.push(user);
+      setLocal(STORAGE_KEYS.USERS, users);
+    }
+  }
+};
+
+export const ProjectService = {
+  getAll: async (): Promise<Project[]> => {
+    if (USE_SUPABASE) {
+      const { data } = await supabase.from('projects').select('*').order('createdAt', { ascending: false });
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<Project>(STORAGE_KEYS.PROJECTS));
+    }
+  },
+
+  create: async (data: Partial<Project>): Promise<Project> => {
+    const newProject: Project = {
+      id: generateId(),
+      title: data.title!,
+      description: data.description || '',
+      status: data.status || 'ACTIVE',
+      createdAt: now()
+    };
+    if (USE_SUPABASE) {
+      await supabase.from('projects').insert(newProject);
+    } else {
+      const list = getLocal<Project>(STORAGE_KEYS.PROJECTS);
+      list.unshift(newProject);
+      setLocal(STORAGE_KEYS.PROJECTS, list);
+    }
+    return newProject;
+  }
+};
+
+export const TestCaseService = {
+  getSections: async (projectId: string): Promise<Section[]> => {
+    if (USE_SUPABASE) {
+      const { data } = await supabase.from('sections').select('*').eq('projectId', projectId);
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<Section>(STORAGE_KEYS.SECTIONS).filter(s => s.projectId === projectId));
+    }
+  },
+
+  createSection: async (data: Partial<Section>) => {
+    const newSec: Section = {
+      id: generateId(),
+      projectId: data.projectId!,
+      title: data.title!,
+      parentId: data.parentId || null
+    };
+    if (USE_SUPABASE) {
+      await supabase.from('sections').insert(newSec);
+    } else {
+      const list = getLocal<Section>(STORAGE_KEYS.SECTIONS);
+      list.push(newSec);
+      setLocal(STORAGE_KEYS.SECTIONS, list);
+    }
+    return newSec;
+  },
+
+  getCases: async (projectId: string): Promise<TestCase[]> => {
+    if (USE_SUPABASE) {
+      const { data } = await supabase.from('testCases').select('*').eq('projectId', projectId);
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.projectId === projectId));
+    }
+  },
+
+  saveCase: async (data: Partial<TestCase>, user: User): Promise<TestCase> => {
+    if (USE_SUPABASE) {
+      if (data.id) {
+        // Update
+        const { data: oldData } = await supabase.from('testCases').select('*').eq('id', data.id).single();
+        if (oldData) {
+          await HistoryService.logChange(oldData, data as TestCase, user);
+        }
+        // Force update timestamp
+        const payload = { ...data, updatedAt: now() };
+        const { data: saved } = await supabase.from('testCases').update(payload).eq('id', data.id).select().single();
+        return saved as TestCase;
+      } else {
+        // Create
+        const newCase: TestCase = {
+          id: generateId(),
+          projectId: data.projectId!,
+          sectionId: data.sectionId!,
+          title: data.title!,
+          precondition: data.precondition || '',
+          steps: data.steps || [],
+          priority: data.priority || 'MEDIUM',
+          type: data.type || 'FUNCTIONAL',
+          authorId: user.id,
+          createdAt: now(),
+          updatedAt: now()
+        };
+        await supabase.from('testCases').insert(newCase);
+        await HistoryService.logChange(null, newCase, user);
+        return newCase;
+      }
+    } else {
+      const list = getLocal<TestCase>(STORAGE_KEYS.CASES);
+      if (data.id) {
+        const idx = list.findIndex(c => c.id === data.id);
+        if (idx !== -1) {
+          const old = list[idx];
+          const updated = { ...old, ...data, updatedAt: now() } as TestCase;
+          await HistoryService.logChange(old, updated, user);
+          list[idx] = updated;
+          setLocal(STORAGE_KEYS.CASES, list);
+          return updated;
+        }
+      }
+      const newCase: TestCase = {
+        id: generateId(),
+        projectId: data.projectId!,
+        sectionId: data.sectionId!,
+        title: data.title!,
+        precondition: data.precondition || '',
+        steps: data.steps || [],
+        priority: data.priority || 'MEDIUM',
+        type: data.type || 'FUNCTIONAL',
+        authorId: user.id,
+        createdAt: now(),
+        updatedAt: now()
+      };
+      await HistoryService.logChange(null, newCase, user);
+      list.push(newCase);
+      setLocal(STORAGE_KEYS.CASES, list);
+      return Promise.resolve(newCase);
+    }
+    throw new Error("Save failed");
+  },
+
+  importCases: async (projectId: string, cases: Partial<TestCase>[], user: User) => {
+    // 1. Ensure sections exist or create them
+    const uniqueSections = Array.from(new Set(cases.map(c => c['sectionTitle'] || 'Uncategorized')));
+    const existingSections = await TestCaseService.getSections(projectId);
+    
+    const sectionMap = new Map<string, string>(); // Name -> ID
+    
+    for (const secTitle of uniqueSections) {
+      let match = existingSections.find(s => s.title === secTitle);
+      if (!match) {
+        match = await TestCaseService.createSection({ projectId, title: secTitle as string });
+      }
+      if (match) sectionMap.set(secTitle as string, match.id);
+    }
+
+    const newCases: TestCase[] = cases.map(c => ({
+      id: generateId(),
+      projectId,
+      sectionId: sectionMap.get(c['sectionTitle'] || 'Uncategorized')!,
+      title: c.title!,
+      precondition: c.precondition || '',
+      steps: c.steps || [],
+      priority: c.priority || 'MEDIUM',
+      type: c.type || 'FUNCTIONAL',
+      authorId: user.id,
+      createdAt: now(),
+      updatedAt: now()
+    }));
+
+    if (USE_SUPABASE) {
+      if (newCases.length > 0) {
+        await supabase.from('testCases').insert(newCases);
+      }
+    } else {
+      const list = getLocal<TestCase>(STORAGE_KEYS.CASES);
+      list.push(...newCases);
+      setLocal(STORAGE_KEYS.CASES, list);
+    }
+  }
+};
+
+export const RunService = {
+  getAll: async (projectId: string): Promise<TestRun[]> => {
+    if (USE_SUPABASE) {
+      const { data } = await supabase.from('testRuns').select('*').eq('projectId', projectId).order('createdAt', { ascending: false });
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<TestRun>(STORAGE_KEYS.RUNS).filter(r => r.projectId === projectId));
+    }
+  },
+
+  create: async (data: Partial<TestRun>): Promise<TestRun> => {
+    const newRun: TestRun = {
+      id: generateId(),
+      projectId: data.projectId!,
+      title: data.title!,
+      status: 'OPEN',
+      assignedToId: data.assignedToId,
+      caseIds: data.caseIds || [],
+      createdAt: now()
+    };
+    if (USE_SUPABASE) {
+      await supabase.from('testRuns').insert(newRun);
+    } else {
+      const list = getLocal<TestRun>(STORAGE_KEYS.RUNS);
+      list.unshift(newRun);
+      setLocal(STORAGE_KEYS.RUNS, list);
+    }
+    return newRun;
+  },
+
+  getResults: async (runId: string): Promise<TestResult[]> => {
+    if (USE_SUPABASE) {
+      const { data } = await supabase.from('testResults').select('*').eq('runId', runId);
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<TestResult>(STORAGE_KEYS.RESULTS).filter(r => r.runId === runId));
+    }
+  },
+
+  saveResult: async (data: Partial<TestResult>) => {
+    if (USE_SUPABASE) {
+      // Check if result exists
+      const { data: existing } = await supabase.from('testResults').select('id').eq('runId', data.runId).eq('caseId', data.caseId).single();
+      
+      const payload = {
+        status: data.status,
+        actualResult: data.actualResult,
+        comment: data.comment,
+        testerId: data.testerId,
+        stepResults: data.stepResults,
+        issues: data.issues,
+        timestamp: now()
+      };
+
+      if (existing) {
+        await supabase.from('testResults').update(payload).eq('id', existing.id);
+      } else {
+        await supabase.from('testResults').insert({
+          id: generateId(),
+          runId: data.runId,
+          caseId: data.caseId,
+          ...payload
+        });
+      }
+    } else {
+      const list = getLocal<TestResult>(STORAGE_KEYS.RESULTS);
+      const idx = list.findIndex(r => r.runId === data.runId && r.caseId === data.caseId);
+      const payload = {
+        runId: data.runId!,
+        caseId: data.caseId!,
+        status: data.status!,
+        actualResult: data.actualResult || '',
+        comment: data.comment || '',
+        testerId: data.testerId!,
+        stepResults: data.stepResults || [],
+        issues: data.issues || [],
+        timestamp: now()
+      };
+
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...payload };
+      } else {
+        list.push({ id: generateId(), ...payload });
+      }
+      setLocal(STORAGE_KEYS.RESULTS, list);
+      return Promise.resolve();
+    }
+  }
+};
+
+export const HistoryService = {
+  getLogs: async (entityId: string): Promise<HistoryLog[]> => {
+    if (USE_SUPABASE) {
+      const { data } = await supabase.from('historyLogs').select('*').eq('entityId', entityId).order('timestamp', { ascending: false });
+      return data || [];
+    } else {
+      return Promise.resolve(getLocal<HistoryLog>(STORAGE_KEYS.HISTORY)
+        .filter(h => h.entityId === entityId)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+    }
+  },
+
+  logChange: async (oldObj: any, newObj: any, user: User) => {
+    const changes: any[] = [];
+    if (!oldObj) {
+      changes.push({ field: 'ALL', oldVal: null, newVal: 'CREATED' });
+    } else {
+      // Simple shallow diff
+      for (const key of Object.keys(newObj)) {
+        if (key === 'updatedAt' || key === 'createdAt') continue;
+        if (JSON.stringify(oldObj[key]) !== JSON.stringify(newObj[key])) {
+          changes.push({ field: key, oldVal: oldObj[key], newVal: newObj[key] });
+        }
+      }
+    }
+
+    if (changes.length === 0) return;
+
+    const log: HistoryLog = {
+      id: generateId(),
+      entityType: 'CASE',
+      entityId: newObj.id,
+      action: oldObj ? 'UPDATE' : 'CREATE',
+      modifierId: user.id,
+      modifierName: user.name,
+      changes,
+      timestamp: now()
+    };
+
+    if (USE_SUPABASE) {
+      await supabase.from('historyLogs').insert(log);
+    } else {
+      const list = getLocal<HistoryLog>(STORAGE_KEYS.HISTORY);
+      list.push(log);
+      setLocal(STORAGE_KEYS.HISTORY, list);
+    }
+  }
+};
