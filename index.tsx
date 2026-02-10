@@ -138,8 +138,6 @@ const normalizeType = (val: string): 'FUNCTIONAL' | 'UI' | 'PERFORMANCE' | 'SECU
 // Format text with numbered list line breaks
 const formatTextWithNumbers = (text: string) => {
   if (!text) return '';
-  // Replace "1.", "2." with "\n1.", "\n2." (avoiding double newlines if already present)
-  // This regex looks for a digit+dot that is NOT preceded by a newline
   return text.replace(/([^\n])(\d+\.)/g, '$1\n$2');
 };
 
@@ -158,7 +156,7 @@ const LoginScreen = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 relative z-50">
       <div className="bg-white p-8 rounded-lg shadow-md w-96">
         <h1 className="text-2xl font-bold mb-6 text-center text-primary">QA 관리 도구</h1>
         <form onSubmit={handleLogin} className="space-y-4">
@@ -186,7 +184,6 @@ const LoginScreen = () => {
   );
 };
 
-// Generic Simple Input Modal
 const SimpleInputModal = ({ 
   isOpen, onClose, title, label, placeholder, onSubmit 
 }: { 
@@ -237,7 +234,6 @@ const SimpleInputModal = ({
   );
 };
 
-// Project Create/Edit Modal
 const ProjectModal = ({
   isOpen, onClose, onSubmit, initialData
 }: {
@@ -324,7 +320,6 @@ const ProjectModal = ({
   );
 };
 
-// [NEW] Project List Component for "Global Directory" view
 const ProjectList = ({ projects, onSelect, onCreate }: { projects: Project[], onSelect: (p: Project) => void, onCreate: () => void }) => {
   return (
     <div className="p-8 max-w-7xl mx-auto h-full overflow-y-auto">
@@ -368,7 +363,6 @@ const ProjectList = ({ projects, onSelect, onCreate }: { projects: Project[], on
   )
 }
 
-// Run Creation Modal
 const RunCreationModal = ({
   isOpen, onClose, project, onSubmit
 }: {
@@ -533,7 +527,6 @@ const RunCreationModal = ({
   );
 };
 
-// Report Generation Modal
 const ReportModal = ({
   isOpen, onClose, project
 }: {
@@ -685,7 +678,6 @@ const ReportModal = ({
   );
 };
 
-// Dashboard Component
 const Dashboard = ({ project }: { project: Project }) => {
   const [stats, setStats] = useState({ total: 0, automated: 0, runs: 0, passRate: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
@@ -758,7 +750,6 @@ const Dashboard = ({ project }: { project: Project }) => {
   );
 };
 
-// [NEW] Import/Export Modal with Column Mapping
 const ImportExportModal = ({ 
   isOpen, onClose, project, cases, sections, onImportSuccess 
 }: { 
@@ -816,8 +807,6 @@ const ImportExportModal = ({
         return;
       }
       
-      // [IMPROVED] Intelligent Header Detection
-      // Instead of blindly taking rows[0], scan the first 20 rows to find the best candidate for the header.
       let bestIndex = 0;
       let bestScore = -1;
       const SCAN_LIMIT = Math.min(rows.length, 20);
@@ -825,7 +814,6 @@ const ImportExportModal = ({
 
       for (let i = 0; i < SCAN_LIMIT; i++) {
         const row = rows[i];
-        // Filter out empty rows entirely to avoid selecting them
         if (!row.some(c => c && c.trim() !== '')) continue;
 
         let score = 0;
@@ -836,14 +824,12 @@ const ImportExportModal = ({
           }
         });
 
-        // Use strict inequality to prefer earlier rows if scores match, but here higher score wins
         if (score > bestScore) {
           bestScore = score;
           bestIndex = i;
         }
       }
       
-      // Fallback: If no keywords matched (score <= 0), default to first non-empty row
       if (bestScore <= 0) {
          for(let i=0; i<SCAN_LIMIT; i++){
              if(rows[i].some(c => c && c.trim() !== '')) {
@@ -888,7 +874,6 @@ const ImportExportModal = ({
     const newCases: any[] = [];
     let currentCase: any = null;
 
-    // [IMPROVED] Start iterating from the row *after* the detected header
     for (let i = headerRowIndex + 1; i < csvMatrix.length; i++) {
       const row = csvMatrix[i];
       if (row.length === 0) continue;
@@ -934,14 +919,11 @@ const ImportExportModal = ({
     alert(`${newCases.length}개의 테스트 케이스를 성공적으로 가져왔습니다.`);
   };
 
-  // Helper to find the best preview row (skipping empty rows or finding first title match)
   const getPreviewRow = () => {
     if (csvMatrix.length <= headerRowIndex + 1) return null;
     
-    // If title is mapped, try to find the first row with a value in that column, searching after header
     const titleIdx = mapping['title'];
     if (titleIdx !== undefined) {
-      // Check up to 5 rows to find a valid title
       for (let i = headerRowIndex + 1; i < Math.min(csvMatrix.length, headerRowIndex + 6); i++) {
         if (csvMatrix[i][titleIdx] && csvMatrix[i][titleIdx].trim() !== '') {
           return csvMatrix[i];
@@ -949,7 +931,6 @@ const ImportExportModal = ({
       }
     }
 
-    // Fallback: Check if next row has any data
     if (csvMatrix.length > headerRowIndex + 1 && csvMatrix[headerRowIndex + 1].some(cell => cell && cell.trim() !== '')) return csvMatrix[headerRowIndex + 1];
     
     return csvMatrix[headerRowIndex + 1];
@@ -1050,8 +1031,6 @@ const ImportExportModal = ({
   );
 };
 
-// --- Missing Components (Restored) ---
-
 const TestCaseManager = ({ project }: { project: Project }) => {
   const { user } = useContext(AuthContext);
   const [sections, setSections] = useState<Section[]>([]);
@@ -1062,7 +1041,6 @@ const TestCaseManager = ({ project }: { project: Project }) => {
   const [isImportOpen, setImportOpen] = useState(false);
   const [isSectionModalOpen, setSectionModalOpen] = useState(false);
 
-  // Form State
   const [editForm, setEditForm] = useState<Partial<TestCase>>({});
 
   const loadData = () => {
@@ -1109,7 +1087,6 @@ const TestCaseManager = ({ project }: { project: Project }) => {
 
   return (
     <div className="flex h-full bg-white rounded shadow overflow-hidden">
-      {/* Sidebar: Sections */}
       <div className="w-64 bg-gray-50 border-r flex flex-col">
         <div className="p-3 border-b flex justify-between items-center">
           <span className="font-bold text-gray-700 text-sm">섹션 (Folders)</span>
@@ -1134,7 +1111,6 @@ const TestCaseManager = ({ project }: { project: Project }) => {
         </div>
       </div>
 
-      {/* Middle: Case List */}
       <div className="w-80 border-r flex flex-col">
         <div className="p-3 border-b flex justify-between items-center bg-white">
            <span className="font-bold text-sm text-gray-700">{filteredCases.length} 케이스</span>
@@ -1160,7 +1136,6 @@ const TestCaseManager = ({ project }: { project: Project }) => {
         </div>
       </div>
 
-      {/* Right: Detail */}
       <div className="flex-1 flex flex-col bg-white">
         {isEditing ? (
           <div className="flex-1 flex flex-col p-6 overflow-y-auto">
@@ -1332,9 +1307,9 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [isReportOpen, setReportOpen] = useState(false);
-  const [isDashboardOpen, setDashboardOpen] = useState(true); // Collapsible Dashboard state
+  const [isDashboardOpen, setDashboardOpen] = useState(true);
+  const [runStats, setRunStats] = useState<Record<string, TestResult[]>>({});
 
-  // Execution Form
   const [status, setStatus] = useState<TestStatus>('UNTESTED');
   const [actual, setActual] = useState('');
   const [comment, setComment] = useState('');
@@ -1342,7 +1317,20 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [defectUrl, setDefectUrl] = useState('');
   const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
 
-  const loadRuns = () => RunService.getAll(project.id).then(setRuns);
+  const loadRuns = async () => {
+    try {
+      const loadedRuns = await RunService.getAll(project.id);
+      setRuns(loadedRuns);
+
+      const stats: Record<string, TestResult[]> = {};
+      await Promise.all(loadedRuns.map(async (r) => {
+         stats[r.id] = await RunService.getResults(r.id);
+      }));
+      setRunStats(stats);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
     loadRuns();
@@ -1394,7 +1382,6 @@ const TestRunner = ({ project }: { project: Project }) => {
     }
   };
 
-  // Autosave function (internal usage)
   const autoSave = async (
     targetStatus: TestStatus, 
     targetActual: string, 
@@ -1424,8 +1411,11 @@ const TestRunner = ({ project }: { project: Project }) => {
 
     await RunService.saveResult(payload);
     
-    // Update local state results array seamlessly
     setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult]);
+    
+    const currentRunStats = runStats[selectedRun.id] || [];
+    const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult];
+    setRunStats(prev => ({ ...prev, [selectedRun.id]: newStats }));
   };
 
   const handleStepStatusChange = (stepId: string, newStepStatus: TestStatus) => {
@@ -1433,7 +1423,6 @@ const TestRunner = ({ project }: { project: Project }) => {
     newStepResults.push({ stepId, status: newStepStatus });
     setStepResults(newStepResults);
 
-    // Auto-calculate parent status based on step logic
     let calculatedStatus: TestStatus = 'PASS';
     const hasFail = newStepResults.some(s => s.status === 'FAIL');
     const hasBlock = newStepResults.some(s => s.status === 'BLOCK');
@@ -1441,10 +1430,7 @@ const TestRunner = ({ project }: { project: Project }) => {
     if (hasFail) calculatedStatus = 'FAIL';
     else if (hasBlock) calculatedStatus = 'BLOCK';
     
-    // Override local status state
     setStatus(calculatedStatus);
-
-    // Autosave immediately
     autoSave(calculatedStatus, actual, comment, defectLabel, defectUrl, newStepResults);
   };
 
@@ -1453,14 +1439,10 @@ const TestRunner = ({ project }: { project: Project }) => {
     autoSave(newStatus, actual, comment, defectLabel, defectUrl, stepResults);
   };
 
-  // Force Pass & Next
   const forcePassAndNext = async () => {
     if (!selectedRun || !runCases[activeCaseIndex]) return;
-    
-    // 1. Save current case as PASS regardless of current status
     await autoSave('PASS', actual, comment, defectLabel, defectUrl, stepResults);
     
-    // 2. Move to next
     if (activeCaseIndex < runCases.length - 1) {
       const nextIdx = activeCaseIndex + 1;
       setActiveCaseIndex(nextIdx);
@@ -1491,7 +1473,13 @@ const TestRunner = ({ project }: { project: Project }) => {
         </div>
         <div className="grid grid-cols-1 gap-4">
           {runs.map(run => {
-            const results = []; 
+            const results = runStats[run.id] || [];
+            const pass = results.filter(r => r.status === 'PASS').length;
+            const fail = results.filter(r => r.status === 'FAIL').length;
+            const total = run.caseIds?.length || 0;
+            const passWidth = total > 0 ? (pass / total) * 100 : 0;
+            const failWidth = total > 0 ? (fail / total) * 100 : 0;
+
             return (
               <div key={run.id} className="bg-white p-4 rounded shadow border hover:border-primary cursor-pointer group" onClick={() => setSelectedRun(run)}>
                 <div className="flex justify-between items-center mb-2">
@@ -1499,10 +1487,11 @@ const TestRunner = ({ project }: { project: Project }) => {
                   <span className="text-xs text-gray-500">{new Date(run.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                   <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-                      <div className="bg-gray-300 h-full w-0" />
+                   <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden flex">
+                      <div className="bg-green-500 h-full" style={{ width: `${passWidth}%` }} />
+                      <div className="bg-red-500 h-full" style={{ width: `${failWidth}%` }} />
                    </div>
-                   <span className="text-xs font-bold text-gray-500">{run.caseIds.length} Cases</span>
+                   <span className="text-xs font-bold text-gray-500">{total} Cases</span>
                 </div>
               </div>
             );
@@ -1529,7 +1518,6 @@ const TestRunner = ({ project }: { project: Project }) => {
 
   return (
     <div className="flex flex-col h-full bg-gray-100">
-      {/* Header */}
       <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm z-10">
          <div className="flex items-center gap-4">
            <button onClick={() => setSelectedRun(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft/></button>
@@ -1552,7 +1540,6 @@ const TestRunner = ({ project }: { project: Project }) => {
          </div>
       </div>
 
-      {/* Collapsible Dashboard (Option B) */}
       {isDashboardOpen && (
         <div className="bg-white border-b p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
            <div className="max-w-6xl mx-auto flex gap-8 items-center justify-center">
@@ -1605,7 +1592,6 @@ const TestRunner = ({ project }: { project: Project }) => {
       )}
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Case List Sidebar */}
         <div className="w-72 bg-white border-r overflow-y-auto">
           {runCases.map((c, idx) => {
             const res = runResults.find(r => r.caseId === c.id);
@@ -1623,9 +1609,7 @@ const TestRunner = ({ project }: { project: Project }) => {
           })}
         </div>
 
-        {/* Center: Execution Area */}
         <div className="flex-1 flex overflow-hidden">
-           {/* Case Detail */}
            <div className="flex-1 overflow-y-auto p-8 bg-white max-w-4xl mx-auto shadow-sm my-4 rounded-lg">
               <div className="mb-6 pb-4 border-b">
                  <div className="flex gap-2 mb-2">
@@ -1674,11 +1658,9 @@ const TestRunner = ({ project }: { project: Project }) => {
                  )})}
               </div>
 
-              {/* Result Entry */}
               <div className={`border-2 rounded-xl p-6 transition-colors ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
                  <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><PlayCircle size={20}/> 결과 입력</h3>
                  
-                 {/* Status Buttons - Immediate Save on Click */}
                  <div className="flex gap-2 mb-4">
                     {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
                       <button 
@@ -1692,7 +1674,6 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
 
                  <div className="space-y-4">
-                    {/* Defect Linker (Only if Fail) */}
                     {status === 'FAIL' && (
                        <div className="bg-red-50 p-4 rounded border border-red-100 animate-in fade-in">
                           <label className="block text-sm font-bold text-red-800 mb-2 flex items-center gap-2"><Bug size={16}/> 결함 리포트 (Issue Tracker Link)</label>
@@ -1738,7 +1719,6 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
 
                  <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
-                    {/* Save button removed as per request. Autosave handles it. */}
                     <button onClick={forcePassAndNext} className="px-6 py-2 bg-primary text-white font-bold rounded shadow hover:bg-blue-600 flex items-center gap-2">
                        <CheckCircle size={18}/> Pass & Next
                     </button>
@@ -1751,3 +1731,204 @@ const TestRunner = ({ project }: { project: Project }) => {
     </div>
   );
 };
+
+const AdminPanel = () => {
+  const [users, setUsers] = useState<User[]>([]);
+  useEffect(() => { AuthService.getAllUsers().then(setUsers); }, []);
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Users/> 사용자 관리</h2>
+      <div className="bg-white rounded shadow overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="p-4">이름</th>
+              <th className="p-4">이메일</th>
+              <th className="p-4">권한</th>
+              <th className="p-4">상태</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {users.map(u => (
+              <tr key={u.id} className="hover:bg-gray-50">
+                <td className="p-4 font-bold">{u.name}</td>
+                <td className="p-4 text-gray-600">{u.email}</td>
+                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{u.role}</span></td>
+                <td className="p-4"><span className="text-green-600 font-bold text-xs">Active</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const App = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'PROJECTS'>('DASHBOARD');
+  const [isProjectModalOpen, setProjectModalOpen] = useState(false);
+  const [isProjectDropdownOpen, setProjectDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    const u = AuthService.getCurrentUser();
+    if (u && u.id && u.name && u.email) {
+      setUser(u);
+      loadProjects();
+    } else {
+      AuthService.logout();
+      setUser(null);
+    }
+  }, []);
+
+  const loadProjects = async () => {
+    const list = await ProjectService.getAll();
+    setProjects(list);
+    if (list.length > 0 && !activeProject) {
+      setActiveProject(list[0]);
+    }
+  };
+
+  const login = async (email: string) => {
+    const u = await AuthService.login(email);
+    if (u) {
+      setUser(u);
+      loadProjects();
+    } else {
+      alert("로그인 실패");
+    }
+  };
+
+  const logout = () => {
+    AuthService.logout();
+    setUser(null);
+    setActiveProject(null);
+  };
+
+  if (!user) {
+    return (
+      <AuthContext.Provider value={{ user, login, logout }}>
+        <LoginScreen />
+      </AuthContext.Provider>
+    );
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      <div className="flex h-screen bg-gray-100 text-gray-900 font-sans">
+        <div className="w-64 bg-gray-900 text-white flex flex-col shadow-xl">
+          <div className="p-4 border-b border-gray-800">
+            <h1 className="text-xl font-bold tracking-tight text-blue-400 mb-4">QA Manager</h1>
+            
+            <div className="relative">
+              <button 
+                onClick={() => setProjectDropdownOpen(!isProjectDropdownOpen)} 
+                className={`w-full text-left bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition flex justify-between items-center ${isProjectDropdownOpen ? 'ring-1 ring-blue-500' : ''}`}
+              >
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Active Project</div>
+                  <div className="font-bold truncate">{activeProject?.title || 'No Project'}</div>
+                </div>
+                <ChevronDown size={16} className={`text-gray-400 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`}/>
+              </button>
+
+              {isProjectDropdownOpen && (
+                <div className="fixed inset-0 z-40 cursor-default" onClick={() => setProjectDropdownOpen(false)}></div>
+              )}
+
+              {isProjectDropdownOpen && (
+                <div className="absolute top-full left-0 w-full bg-white text-gray-900 rounded shadow-xl mt-1 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                   <div className="px-2 py-1.5 border-b mb-1">
+                      <button onClick={() => { setView('PROJECTS'); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-gray-100 rounded text-sm font-bold flex items-center gap-2 text-gray-700">
+                          <LayoutGrid size={16}/> 전체 프로젝트 보기
+                      </button>
+                   </div>
+                   <div className="max-h-64 overflow-y-auto">
+                      {projects.map(p => (
+                        <div key={p.id} onClick={() => { setActiveProject(p); setView('DASHBOARD'); setProjectDropdownOpen(false); }} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
+                          {p.title}
+                          {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
+                        </div>
+                      ))}
+                   </div>
+                   <div className="border-t mt-1 pt-1 px-2 pb-1">
+                      <button onClick={() => { setProjectModalOpen(true); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
+                        <Plus size={12}/> 새 프로젝트 생성
+                      </button>
+                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <nav className="flex-1 p-4 space-y-2">
+            <button onClick={() => setView('DASHBOARD')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'DASHBOARD' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <LayoutDashboard size={18} /> 대시보드
+            </button>
+            <button onClick={() => setView('CASES')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'CASES' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <FolderTree size={18} /> 테스트 케이스
+            </button>
+            <button onClick={() => setView('RUNS')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'RUNS' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <PlayCircle size={18} /> 테스트 실행
+            </button>
+            {user.role === 'ADMIN' && (
+              <button onClick={() => setView('ADMIN')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'ADMIN' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                <Settings size={18} /> 관리자 설정
+              </button>
+            )}
+          </nav>
+
+          <div className="p-4 border-t border-gray-800">
+            <div className="flex items-center gap-3 mb-4 px-2">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center font-bold text-white text-xs">
+                {user.name.charAt(0)}
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <div className="text-sm font-bold text-white truncate">{user.name}</div>
+                <div className="text-xs text-gray-500 truncate">{user.email}</div>
+              </div>
+            </div>
+            <button onClick={logout} className="w-full flex items-center gap-2 text-gray-400 hover:text-white text-sm px-2 transition">
+              <LogOut size={16} /> 로그아웃
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {view === 'PROJECTS' ? (
+             <ProjectList 
+               projects={projects} 
+               onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
+               onCreate={() => setProjectModalOpen(true)} 
+             />
+          ) : activeProject ? (
+            <>
+              {view === 'DASHBOARD' && <Dashboard project={activeProject} />}
+              {view === 'CASES' && <TestCaseManager project={activeProject} />}
+              {view === 'RUNS' && <TestRunner project={activeProject} />}
+              {view === 'ADMIN' && <AdminPanel />}
+            </>
+          ) : (
+             <ProjectList 
+               projects={projects} 
+               onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
+               onCreate={() => setProjectModalOpen(true)} 
+             />
+          )}
+        </div>
+        
+        <ProjectModal 
+          isOpen={isProjectModalOpen} 
+          onClose={() => setProjectModalOpen(false)} 
+          onSubmit={async (t, d, s) => { await ProjectService.create({title: t, description: d, status: s}); loadProjects(); }} 
+        />
+      </div>
+    </AuthContext.Provider>
+  );
+};
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);
