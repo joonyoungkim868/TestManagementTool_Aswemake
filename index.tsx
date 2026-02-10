@@ -1234,25 +1234,56 @@ const TestCaseManager = ({ project }: { project: Project }) => {
     setSelectedCase(saved); // Load the saved case
   };
   
+  // [3-2, 3-3] 테스트 케이스 삭제: 컨펌 팝업 없이 즉시 삭제
   const handleDeleteCase = async (caseId: string, event?: React.MouseEvent) => {
-    event?.stopPropagation();
-    if (confirm("정말 이 테스트 케이스를 삭제하시겠습니까?")) {
-      await TestCaseService.deleteCase(caseId);
-      loadData();
-      if (selectedCase?.id === caseId) {
-        setSelectedCase(null);
-        setIsEditing(false);
-      }
+    // 이벤트 전파 방지 (리스트 클릭 방지)
+    event?.stopPropagation(); 
+    
+    // 별도 컨펌 없이 즉시 삭제 API 호출
+    await TestCaseService.deleteCase(caseId);
+    
+    // 데이터 재로딩 및 UI 갱신
+    loadData();
+    
+    // 만약 현재 보고 있던 케이스를 삭제했다면 상세 화면 닫기
+    if (selectedCase?.id === caseId) {
+      setSelectedCase(null);
+      setIsEditing(false);
     }
   };
 
+  // [3-1] 섹션(폴더) 삭제: 하위 케이스 유무에 따른 조건부 처리
   const handleDeleteSection = async (sectionId: string, event: React.MouseEvent) => {
+    // 이벤트 전파 및 기본 동작 방지 (필수)
     event.stopPropagation();
-    const count = cases.filter(c => c.sectionId === sectionId).length;
-    if (confirm(`섹션을 삭제하시겠습니까?\n포함된 ${count}개의 테스트 케이스도 모두 영구 삭제됩니다.`)) {
-      await TestCaseService.deleteSection(sectionId);
-      loadData();
-      if (selectedSectionId === sectionId) setSelectedSectionId(null);
+    event.preventDefault(); 
+
+    // 현재 섹션에 포함된 하위 케이스 개수 계산
+    const sectionCases = cases.filter(c => c.sectionId === sectionId);
+    const count = sectionCases.length;
+    
+    // 하위 케이스가 1개 이상 존재하는 경우에만 컨펌 팝업 띄움
+    if (count > 0) {
+      // window.confirm을 명시적으로 사용하여 팝업 호출 보장
+      const isConfirmed = window.confirm(`해당 폴더 삭제 시, 하위 ${count}개의 테스트케이스가 삭제됩니다. 삭제하시겠습니까?`);
+      
+      // 사용자가 '취소'를 누르면 함수 종료 (삭제 진행 안 함)
+      if (!isConfirmed) {
+        return; 
+      }
+    }
+    
+    // [실행 조건] 
+    // 1. 하위 케이스가 없는 경우 (count === 0) -> 즉시 실행
+    // 2. 하위 케이스가 있고 사용자가 '확인'을 누른 경우 -> 실행
+    await TestCaseService.deleteSection(sectionId);
+    
+    // UI 갱신
+    loadData();
+    
+    // 삭제된 섹션이 선택되어 있었다면 선택 해제
+    if (selectedSectionId === sectionId) {
+      setSelectedSectionId(null);
     }
   };
 
