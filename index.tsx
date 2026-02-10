@@ -5,7 +5,7 @@ import {
   Plus, ChevronRight, ChevronDown, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
   Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List, Trash2, Bug, ExternalLink, BarChart2,
-  Table, Link as LinkIcon, MinusCircle, HelpCircle
+  Table, Link as LinkIcon, MinusCircle, HelpCircle, LayoutGrid
 } from 'lucide-react';
 import { 
   AuthService, ProjectService, TestCaseService, RunService, HistoryService 
@@ -315,6 +315,50 @@ const ProjectModal = ({
     </div>
   );
 };
+
+// [NEW] Project List Component for "Global Directory" view
+const ProjectList = ({ projects, onSelect, onCreate }: { projects: Project[], onSelect: (p: Project) => void, onCreate: () => void }) => {
+  return (
+    <div className="p-8 max-w-7xl mx-auto h-full overflow-y-auto">
+       <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">전체 프로젝트</h1>
+            <p className="text-gray-500 mt-1">관리 중인 모든 품질 보증 프로젝트 목록입니다.</p>
+          </div>
+          <button onClick={onCreate} className="px-4 py-2 bg-primary text-white rounded-lg font-bold shadow hover:bg-blue-600 flex items-center gap-2">
+            <Plus size={20}/> 새 프로젝트
+          </button>
+       </div>
+       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.map(p => (
+            <div key={p.id} onClick={() => onSelect(p)} className="bg-white rounded-xl shadow-sm border hover:border-primary hover:shadow-md cursor-pointer transition p-6 flex flex-col h-48 group">
+               <div className="flex justify-between items-start mb-4">
+                  <div className={`p-2 rounded-lg ${p.status === 'ACTIVE' ? 'bg-blue-100 text-primary' : 'bg-gray-100 text-gray-500'}`}>
+                    <Folder size={24} />
+                  </div>
+                  {p.status === 'ACTIVE' ? (
+                    <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-bold">Active</span>
+                  ) : (
+                    <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full font-bold">Archived</span>
+                  )}
+               </div>
+               <h3 className="font-bold text-xl text-gray-900 mb-2 truncate group-hover:text-primary transition-colors">{p.title}</h3>
+               <p className="text-sm text-gray-500 line-clamp-2 flex-1">{p.description || '설명이 없습니다.'}</p>
+               <div className="mt-4 pt-4 border-t text-xs text-gray-400 flex justify-between items-center">
+                  <span>Created: {new Date(p.createdAt).toLocaleDateString()}</span>
+                  <ArrowRight size={16} className="text-gray-300 group-hover:text-primary transition-colors" />
+               </div>
+            </div>
+          ))}
+          {/* Create Placeholder */}
+          <div onClick={onCreate} className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-primary hover:text-primary hover:bg-blue-50 cursor-pointer transition h-48">
+             <Plus size={32} className="mb-2"/>
+             <span className="font-bold">새 프로젝트 생성</span>
+          </div>
+       </div>
+    </div>
+  )
+}
 
 // Run Creation Modal
 const RunCreationModal = ({
@@ -1590,7 +1634,7 @@ const App = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN'>('DASHBOARD');
+  const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'PROJECTS'>('DASHBOARD');
   const [isProjectModalOpen, setProjectModalOpen] = useState(false);
 
   useEffect(() => {
@@ -1648,14 +1692,21 @@ const App = () => {
                 </div>
                 <ChevronDown size={16} className="text-gray-400"/>
               </button>
-              {/* Dropdown would go here, simplified to just open create modal for now or switch logic */}
+              {/* Dropdown with Project List Button */}
               <div className="hidden group-hover:block absolute top-full left-0 w-full bg-white text-gray-900 rounded shadow-xl mt-1 py-1 z-50">
-                 {projects.map(p => (
-                   <div key={p.id} onClick={() => setActiveProject(p)} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
-                     {p.title}
-                     {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
-                   </div>
-                 ))}
+                 <div className="px-2 py-1.5 border-b mb-1">
+                    <button onClick={() => setView('PROJECTS')} className="w-full text-left px-2 py-1.5 hover:bg-gray-100 rounded text-sm font-bold flex items-center gap-2 text-gray-700">
+                        <LayoutGrid size={16}/> 전체 프로젝트 보기
+                    </button>
+                 </div>
+                 <div className="max-h-64 overflow-y-auto">
+                    {projects.map(p => (
+                      <div key={p.id} onClick={() => { setActiveProject(p); setView('DASHBOARD'); }} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
+                        {p.title}
+                        {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
+                      </div>
+                    ))}
+                 </div>
                  <div className="border-t mt-1 pt-1 px-2 pb-1">
                     <button onClick={() => setProjectModalOpen(true)} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
                       <Plus size={12}/> 새 프로젝트 생성
@@ -1700,7 +1751,13 @@ const App = () => {
 
         {/* Main Content */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {activeProject ? (
+          {view === 'PROJECTS' ? (
+             <ProjectList 
+               projects={projects} 
+               onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
+               onCreate={() => setProjectModalOpen(true)} 
+             />
+          ) : activeProject ? (
             <>
               {view === 'DASHBOARD' && <Dashboard project={activeProject} />}
               {view === 'CASES' && <TestCaseManager project={activeProject} />}
@@ -1708,13 +1765,11 @@ const App = () => {
               {view === 'ADMIN' && <AdminPanel />}
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-              <Folder size={64} className="mb-4 opacity-20"/>
-              <p className="text-lg font-medium mb-4">선택된 프로젝트가 없습니다.</p>
-              <button onClick={() => setProjectModalOpen(true)} className="px-6 py-3 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-blue-600 transition">
-                첫 번째 프로젝트 생성하기
-              </button>
-            </div>
+             <ProjectList 
+               projects={projects} 
+               onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
+               onCreate={() => setProjectModalOpen(true)} 
+             />
           )}
         </div>
         
