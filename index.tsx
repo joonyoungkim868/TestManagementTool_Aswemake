@@ -5,7 +5,7 @@ import {
   Plus, ChevronRight, ChevronDown, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
   Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List, Trash2, Bug, ExternalLink, BarChart2,
-  Table
+  Table, Link as LinkIcon, MinusCircle, HelpCircle
 } from 'lucide-react';
 import { 
   AuthService, ProjectService, TestCaseService, RunService, HistoryService 
@@ -1154,26 +1154,52 @@ const TestRunner = ({ project }: { project: Project }) => {
     setExecutionMode(true);
   };
 
-  const submitResult = (autoNext: boolean = false) => {
+  const submitResult = (autoNext: boolean = false, statusOverride?: TestStatus) => {
     if (!activeCaseId || !activeRun || !user) return;
+    
+    // Use overridden status if provided (e.g., for Pass & Next), otherwise use form state
+    const statusToSave = statusOverride || formStatus;
+    
     const stepResultsArray = Object.entries(stepStatuses).map(([stepId, status]) => ({ stepId, status }));
     RunService.saveResult({
-      runId: activeRun.id, caseId: activeCaseId, status: formStatus, actualResult: formActual, comment: formComment, testerId: user.id, stepResults: stepResultsArray, issues: formIssues.filter(i => i.label.trim() !== '')
+      runId: activeRun.id, 
+      caseId: activeCaseId, 
+      status: statusToSave, 
+      actualResult: formActual, 
+      comment: formComment, 
+      testerId: user.id, 
+      stepResults: stepResultsArray, 
+      issues: formIssues.filter(i => i.label.trim() !== '')
     });
     setRunResults(RunService.getResults(activeRun.id));
+    
     if (autoNext) {
       const currentIndex = casesInRun.findIndex(c => c.id === activeCaseId);
-      if (currentIndex < casesInRun.length - 1) setActiveCaseId(casesInRun[currentIndex + 1].id);
-      else alert("마지막 케이스입니다.");
+      if (currentIndex < casesInRun.length - 1) {
+        setActiveCaseId(casesInRun[currentIndex + 1].id);
+      } else {
+        alert("마지막 케이스입니다.");
+      }
     }
   };
 
   const getStatusIcon = (status?: string) => {
     switch(status) {
-      case 'PASS': return <CheckCircle size={16} className="text-green-600" />;
-      case 'FAIL': return <XCircle size={16} className="text-red-600" />;
-      case 'BLOCK': return <AlertCircle size={16} className="text-gray-800" />;
-      default: return <div className="w-4 h-4 rounded-full border border-gray-300 bg-gray-50" />;
+      case 'PASS': return <CheckCircle size={14} className="text-green-600" />;
+      case 'FAIL': return <XCircle size={14} className="text-red-600" />;
+      case 'BLOCK': return <MinusCircle size={14} className="text-gray-800" />;
+      case 'NA': return <HelpCircle size={14} className="text-orange-500" />;
+      default: return <div className="w-3.5 h-3.5 rounded-full border border-gray-300 bg-gray-50" />;
+    }
+  };
+
+  const getStatusBorderColor = (status: TestStatus) => {
+    switch(status) {
+      case 'PASS': return 'border-green-500 bg-green-50/30';
+      case 'FAIL': return 'border-red-500 bg-red-50/30';
+      case 'BLOCK': return 'border-gray-800 bg-gray-50/30';
+      case 'NA': return 'border-orange-400 bg-orange-50/30';
+      default: return 'border-blue-200 bg-white';
     }
   };
 
@@ -1186,27 +1212,127 @@ const TestRunner = ({ project }: { project: Project }) => {
              <div className="flex items-center gap-2"><span className="text-sm font-semibold text-gray-600">{casesInRun.findIndex(c => c.id === activeCaseId) + 1} / {casesInRun.length}</span></div>
            </div>
            <div className="flex-1 flex overflow-hidden">
-             <div className="w-80 bg-white border-r overflow-y-auto p-4">
+             {/* Compact List View */}
+             <div className="w-72 bg-white border-r overflow-y-auto p-2">
                {sectionsInRun.map(sec => {
                  const secCases = casesInRun.filter(c => c.sectionId === sec.id);
                  if (secCases.length === 0) return null;
                  return (
-                   <div key={sec.id} className="mb-4"><div className="flex items-center gap-1 font-semibold text-gray-700 mb-1"><FolderTree size={14} /> {sec.title}</div><div className="pl-2 border-l-2 border-gray-100 space-y-1">{secCases.map(tc => { const res = runResults.find(r => r.caseId === tc.id); const isActive = tc.id === activeCaseId; return (<div key={tc.id} onClick={() => setActiveCaseId(tc.id)} className={`flex items-start gap-2 p-2 rounded text-sm cursor-pointer hover:bg-gray-50 ${isActive ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-300' : ''}`}><div className="mt-0.5">{getStatusIcon(res?.status)}</div><span className={`truncate ${isActive ? 'font-semibold text-primary' : 'text-gray-600'}`}>{tc.title}</span></div>); })}</div></div>
+                   <div key={sec.id} className="mb-2">
+                     <div className="flex items-center gap-1 font-semibold text-gray-700 mb-1 px-2 text-xs uppercase tracking-wider"><FolderTree size={12} /> {sec.title}</div>
+                     <div className="space-y-0.5">
+                       {secCases.map(tc => { 
+                         const res = runResults.find(r => r.caseId === tc.id); 
+                         const isActive = tc.id === activeCaseId; 
+                         return (
+                           <div key={tc.id} onClick={() => setActiveCaseId(tc.id)} className={`flex items-start gap-2 p-1.5 rounded text-xs cursor-pointer hover:bg-gray-50 transition-colors ${isActive ? 'bg-blue-50 border border-blue-200 shadow-sm' : ''}`}>
+                             <div className="mt-0.5 shrink-0">{getStatusIcon(res?.status)}</div>
+                             <span className={`truncate leading-snug ${isActive ? 'font-bold text-primary' : 'text-gray-600'}`}>{tc.title}</span>
+                           </div>
+                         ); 
+                       })}
+                     </div>
+                   </div>
                  );
                })}
              </div>
+             
              <div className="flex-1 overflow-y-auto p-8">
                 {currentCase ? (
-                  <div className="max-w-4xl mx-auto space-y-8">
+                  <div className="max-w-4xl mx-auto space-y-8 pb-20">
                      <div className="bg-white p-6 rounded shadow-sm border">
-                        <h1 className="text-2xl font-bold text-gray-900 mb-4">{currentCase.title}</h1>
-                        <table className="w-full text-sm border"><thead><tr className="bg-gray-50"><th className="border p-2">#</th><th className="border p-2">절차</th><th className="border p-2">기대 결과</th><th className="border p-2 w-28">Status</th></tr></thead><tbody>{currentCase.steps.map((s, i) => (<tr key={i}><td className="border p-2 text-center">{i+1}</td><td className="border p-2">{s.step}</td><td className="border p-2">{s.expected}</td><td className="border p-2 text-center"><select className="text-xs p-1 rounded border" value={stepStatuses[s.id] || ''} onChange={(e) => setStepStatuses({...stepStatuses, [s.id]: e.target.value as TestStatus})}><option value="">(선택)</option><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="BLOCK">BLOCK</option><option value="NA">N/A</option></select></td></tr>))}</tbody></table>
+                        <div className="flex justify-between items-start mb-4">
+                          <h1 className="text-xl font-bold text-gray-900 leading-tight">{currentCase.title}</h1>
+                          <div className="flex gap-2 text-xs">
+                             <span className="bg-gray-100 px-2 py-1 rounded text-gray-600">Priority: {currentCase.priority}</span>
+                             <span className="bg-gray-100 px-2 py-1 rounded text-gray-600">Type: {currentCase.type}</span>
+                          </div>
+                        </div>
+                        {currentCase.precondition && (
+                          <div className="mb-6 p-3 bg-gray-50 rounded text-sm text-gray-700 whitespace-pre-wrap border border-gray-100">
+                             <span className="font-bold block mb-1 text-gray-500 text-xs uppercase">Precondition</span>
+                             {currentCase.precondition}
+                          </div>
+                        )}
+                        <table className="w-full text-sm border"><thead><tr className="bg-gray-50"><th className="border p-2 w-10">#</th><th className="border p-2">절차 (Step)</th><th className="border p-2">기대 결과 (Expected)</th><th className="border p-2 w-28">Status</th></tr></thead><tbody>{currentCase.steps.map((s, i) => (<tr key={i}><td className="border p-2 text-center text-gray-500">{i+1}</td><td className="border p-2 whitespace-pre-wrap">{s.step}</td><td className="border p-2 whitespace-pre-wrap">{s.expected}</td><td className="border p-2 text-center"><select className="text-xs p-1 rounded border w-full" value={stepStatuses[s.id] || ''} onChange={(e) => setStepStatuses({...stepStatuses, [s.id]: e.target.value as TestStatus})}><option value="">-</option><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="BLOCK">BLOCKED</option><option value="NA">N/A</option></select></td></tr>))}</tbody></table>
                      </div>
-                     <div className="bg-white p-6 rounded shadow-lg border-2 relative border-blue-100">
-                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">결과 저장</h3><select className="font-bold p-2 rounded border" value={formStatus} onChange={(e) => setFormStatus(e.target.value as TestStatus)}><option value="UNTESTED">미수행</option><option value="PASS">성공</option><option value="FAIL">실패</option><option value="BLOCK">차단됨</option><option value="NA">해당없음</option></select></div>
-                        <div className="flex gap-4 mb-4"><textarea className="flex-1 border rounded p-2 h-24" value={formActual} onChange={e => setFormActual(e.target.value)} placeholder="실제 결과" /><textarea className="flex-1 border rounded p-2 h-24" value={formComment} onChange={e => setFormComment(e.target.value)} placeholder="코멘트" /></div>
-                        <div className="mb-4 border-t pt-4"><div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-red-600 flex items-center gap-1"><Bug size={14} /> 결함</label><button onClick={() => setFormIssues([...formIssues, {id: Date.now().toString(), label: '', url: ''}])} className="text-xs text-primary font-bold">+ 추가</button></div><div className="space-y-3">{formIssues.map((issue, idx) => (<div key={idx} className="flex gap-2"><input className="border rounded px-2 py-1 flex-1 text-sm" placeholder="이슈 내용" value={issue.label} onChange={e => {const n = [...formIssues]; n[idx].label = e.target.value; setFormIssues(n)}} /><button onClick={() => setFormIssues(formIssues.filter((_,i)=>i!==idx))} className="text-red-500"><Trash2 size={16}/></button></div>))}</div></div>
-                        <div className="flex justify-end gap-3"><button onClick={() => submitResult(false)} className="px-4 py-2 border rounded">저장</button><button onClick={() => submitResult(true)} className="px-6 py-2 bg-blue-600 text-white rounded font-bold">저장 & 다음</button></div>
+
+                     {/* Result Container with Visual Feedback */}
+                     <div className={`bg-white p-6 rounded shadow-lg border-2 relative transition-colors duration-200 ${getStatusBorderColor(formStatus)}`}>
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="font-bold text-lg">결과 저장 (Result)</h3>
+                          <select 
+                            className={`font-bold p-2 rounded border focus:ring-2 focus:ring-offset-1 outline-none ${
+                               formStatus === 'PASS' ? 'text-green-600 border-green-200 ring-green-500' :
+                               formStatus === 'FAIL' ? 'text-red-600 border-red-200 ring-red-500' :
+                               formStatus === 'BLOCK' ? 'text-gray-800 border-gray-400 ring-gray-600' :
+                               formStatus === 'NA' ? 'text-orange-500 border-orange-200 ring-orange-400' :
+                               'text-gray-500'
+                            }`} 
+                            value={formStatus} 
+                            onChange={(e) => setFormStatus(e.target.value as TestStatus)}
+                          >
+                            <option value="UNTESTED">미수행 (UNTESTED)</option>
+                            <option value="PASS">PASS</option>
+                            <option value="FAIL">FAIL</option>
+                            <option value="BLOCK">BLOCKED</option>
+                            <option value="NA">N/A</option>
+                          </select>
+                        </div>
+                        
+                        <div className="flex gap-4 mb-4">
+                          <div className="flex-1">
+                             <label className="block text-xs font-semibold text-gray-500 mb-1">실제 결과 (Actual Result)</label>
+                             <textarea className="w-full border rounded p-2 h-24 text-sm bg-white" value={formActual} onChange={e => setFormActual(e.target.value)} placeholder="테스트 수행 후 실제 관측된 결과를 입력하세요." />
+                          </div>
+                          <div className="flex-1">
+                             <label className="block text-xs font-semibold text-gray-500 mb-1">코멘트 (Comment)</label>
+                             <textarea className="w-full border rounded p-2 h-24 text-sm bg-white" value={formComment} onChange={e => setFormComment(e.target.value)} placeholder="추가적인 메모나 비고 사항을 입력하세요." />
+                          </div>
+                        </div>
+                        
+                        <div className="mb-6 border-t pt-4 border-gray-200">
+                           <div className="flex justify-between items-center mb-2">
+                             <label className="text-sm font-semibold text-red-600 flex items-center gap-1"><Bug size={14} /> 결함 (Defects)</label>
+                             <button onClick={() => setFormIssues([...formIssues, {id: Date.now().toString(), label: '', url: ''}])} className="text-xs text-primary font-bold hover:underline">+ 결함 추가</button>
+                           </div>
+                           <div className="space-y-2">
+                             {formIssues.length === 0 && <div className="text-xs text-gray-400 italic">등록된 결함이 없습니다.</div>}
+                             {formIssues.map((issue, idx) => (
+                               <div key={idx} className="flex gap-2 items-center bg-red-50 p-2 rounded border border-red-100">
+                                 <span className="text-red-400 font-bold text-xs">#{idx+1}</span>
+                                 <input 
+                                   className="border rounded px-2 py-1 flex-1 text-sm focus:border-red-400 outline-none" 
+                                   placeholder="이슈 제목 (예: 로그인 버튼 겹침)" 
+                                   value={issue.label} 
+                                   onChange={e => {const n = [...formIssues]; n[idx].label = e.target.value; setFormIssues(n)}} 
+                                 />
+                                 <div className="flex-1 flex items-center relative">
+                                    <LinkIcon size={14} className="absolute left-2 text-gray-400"/>
+                                    <input 
+                                      className="border rounded pl-7 pr-2 py-1 w-full text-sm focus:border-red-400 outline-none" 
+                                      placeholder="https://jira... (URL)" 
+                                      value={issue.url} 
+                                      onChange={e => {const n = [...formIssues]; n[idx].url = e.target.value; setFormIssues(n)}} 
+                                    />
+                                 </div>
+                                 <button onClick={() => setFormIssues(formIssues.filter((_,i)=>i!==idx))} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
+                               </div>
+                             ))}
+                           </div>
+                        </div>
+                        
+                        <div className="flex justify-end gap-3">
+                           <button onClick={() => submitResult(false)} className="px-4 py-2 border border-gray-300 rounded hover:bg-white text-gray-700 font-medium">저장 (Save)</button>
+                           {/* New Pass & Next Action */}
+                           <button 
+                             onClick={() => submitResult(true, 'PASS')} 
+                             className="px-6 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2"
+                             title="현재 케이스를 PASS로 저장하고 다음 케이스로 이동합니다."
+                           >
+                             <CheckCircle size={18} /> Pass & Next
+                           </button>
+                        </div>
                      </div>
                   </div>
                 ) : <div>케이스를 선택하세요.</div>}
@@ -1216,19 +1342,175 @@ const TestRunner = ({ project }: { project: Project }) => {
       );
   }
 
+  // Run Detail Dashboard
   if (activeRun) {
+    const passed = runResults.filter(r => r.status === 'PASS').length;
+    const failed = runResults.filter(r => r.status === 'FAIL').length;
+    const blocked = runResults.filter(r => r.status === 'BLOCK').length;
+    const na = runResults.filter(r => r.status === 'NA').length;
+    const untested = casesInRun.length - runResults.length;
+    
     return (
-      <div className="h-full flex flex-col p-6">
-        <div className="flex items-center gap-4 mb-6"><button onClick={() => setActiveRun(null)} className="text-gray-500">&larr;</button><h2 className="text-2xl font-bold">{activeRun.title}</h2><div className="flex-1 text-right"><button onClick={() => startExecution()} className="bg-primary text-white px-6 py-2 rounded font-bold shadow">테스트 시작</button></div></div>
-        <div className="flex-1 bg-white rounded shadow overflow-y-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="p-3 text-left">ID</th><th className="p-3 text-left">제목</th><th className="p-3 text-left">상태</th><th className="p-3"></th></tr></thead><tbody>{casesInRun.map(tc => { const res = runResults.find(r => r.caseId === tc.id); return (<tr key={tc.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500">{tc.id.substring(0,6)}</td><td className="p-3 font-medium">{tc.title}</td><td className="p-3">{res?.status || 'UNTESTED'}</td><td className="p-3 text-center"><button onClick={() => startExecution(tc.id)} className="text-primary text-sm">실행</button></td></tr>); })}</tbody></table></div>
+      <div className="h-full flex flex-col p-6 bg-gray-50">
+        <div className="flex items-center gap-4 mb-6">
+           <button onClick={() => setActiveRun(null)} className="text-gray-500 hover:bg-gray-200 p-1 rounded"><ArrowLeft size={24} /></button>
+           <h2 className="text-2xl font-bold text-gray-800">{activeRun.title}</h2>
+           <div className="flex-1 text-right">
+              <button onClick={() => startExecution()} className="bg-primary text-white px-6 py-2 rounded font-bold shadow hover:bg-blue-600 transition flex items-center gap-2 ml-auto">
+                 <PlayCircle size={20} /> 테스트 시작 (Runner)
+              </button>
+           </div>
+        </div>
+        
+        {/* Mini Dashboard */}
+        <div className="bg-white rounded-lg shadow-sm border p-6 mb-6 flex items-center justify-between">
+           <div className="flex gap-8 items-center">
+              <div className="w-32 h-32">
+                 <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'PASS', value: passed, fill: '#22c55e' },
+                          { name: 'FAIL', value: failed, fill: '#ef4444' },
+                          { name: 'BLOCKED', value: blocked, fill: '#1f2937' },
+                          { name: 'N/A', value: na, fill: '#f97316' },
+                          { name: 'UNTESTED', value: untested, fill: '#e5e7eb' }
+                        ]}
+                        dataKey="value"
+                        innerRadius={25}
+                        outerRadius={40}
+                        startAngle={90}
+                        endAngle={-270}
+                      >
+                         <Cell fill="#22c55e" />
+                         <Cell fill="#ef4444" />
+                         <Cell fill="#1f2937" />
+                         <Cell fill="#f97316" />
+                         <Cell fill="#e5e7eb" />
+                      </Pie>
+                    </PieChart>
+                 </ResponsiveContainer>
+              </div>
+              <div className="space-y-1">
+                 <div className="text-xs text-gray-500 font-bold uppercase tracking-wider">Progress</div>
+                 <div className="text-2xl font-bold text-gray-800">{Math.round(((casesInRun.length - untested) / casesInRun.length) * 100) || 0}%</div>
+                 <div className="text-xs text-gray-400">완료됨</div>
+              </div>
+           </div>
+           
+           <div className="flex gap-4">
+              <div className="text-center px-4 border-r">
+                 <div className="text-2xl font-bold text-green-600">{passed}</div>
+                 <div className="text-xs font-bold text-gray-500 mt-1">PASS</div>
+              </div>
+              <div className="text-center px-4 border-r">
+                 <div className="text-2xl font-bold text-red-500">{failed}</div>
+                 <div className="text-xs font-bold text-gray-500 mt-1">FAIL</div>
+              </div>
+              <div className="text-center px-4 border-r">
+                 <div className="text-2xl font-bold text-gray-800">{blocked}</div>
+                 <div className="text-xs font-bold text-gray-500 mt-1">BLOCKED</div>
+              </div>
+              <div className="text-center px-4 border-r">
+                 <div className="text-2xl font-bold text-orange-500">{na}</div>
+                 <div className="text-xs font-bold text-gray-500 mt-1">N/A</div>
+              </div>
+              <div className="text-center px-4">
+                 <div className="text-2xl font-bold text-gray-400">{untested}</div>
+                 <div className="text-xs font-bold text-gray-500 mt-1">UNTESTED</div>
+              </div>
+           </div>
+        </div>
+
+        <div className="flex-1 bg-white rounded shadow-sm border overflow-hidden flex flex-col">
+           <div className="p-3 bg-gray-50 border-b font-semibold text-gray-700 flex justify-between items-center">
+              <span>테스트 케이스 목록 ({casesInRun.length})</span>
+           </div>
+           <div className="flex-1 overflow-y-auto">
+             <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b sticky top-0">
+                   <tr>
+                      <th className="p-3 text-left w-24">ID</th>
+                      <th className="p-3 text-left">제목</th>
+                      <th className="p-3 text-center w-32">상태</th>
+                      <th className="p-3 w-20"></th>
+                   </tr>
+                </thead>
+                <tbody className="divide-y">
+                   {casesInRun.map(tc => { 
+                      const res = runResults.find(r => r.caseId === tc.id); 
+                      let statusBadge = <span className="px-2 py-1 rounded text-xs bg-gray-100 text-gray-500 font-medium">UNTESTED</span>;
+                      if (res?.status === 'PASS') statusBadge = <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 font-bold border border-green-200">PASS</span>;
+                      else if (res?.status === 'FAIL') statusBadge = <span className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 font-bold border border-red-200">FAIL</span>;
+                      else if (res?.status === 'BLOCK') statusBadge = <span className="px-2 py-1 rounded text-xs bg-gray-800 text-white font-bold">BLOCKED</span>;
+                      else if (res?.status === 'NA') statusBadge = <span className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-700 font-bold border border-orange-200">N/A</span>;
+
+                      return (
+                        <tr key={tc.id} className="hover:bg-gray-50 transition-colors">
+                           <td className="p-3 text-gray-500 font-mono text-xs">{tc.id.substring(0,6)}</td>
+                           <td className="p-3 font-medium text-gray-800">{tc.title}</td>
+                           <td className="p-3 text-center">{statusBadge}</td>
+                           <td className="p-3 text-center">
+                              <button onClick={() => startExecution(tc.id)} className="text-primary hover:bg-blue-50 p-1.5 rounded transition">
+                                 <Play size={16} />
+                              </button>
+                           </td>
+                        </tr>
+                      ); 
+                   })}
+                </tbody>
+             </table>
+           </div>
+        </div>
       </div>
     );
   }
 
+  // Run List with Stacked Progress Bar
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold">테스트 실행 목록</h2>{user?.role !== 'EXTERNAL' && (<button onClick={() => setRunModalOpen(true)} className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={16} /> 새 실행 생성</button>)}</div>
-      <div className="grid gap-4">{runs.map(run => (<div key={run.id} className="bg-white p-4 rounded shadow flex justify-between items-center cursor-pointer hover:bg-gray-50" onClick={() => setActiveRun(run)}><div><h3 className="font-bold text-lg">{run.title}</h3><p className="text-sm text-gray-500">생성일: {new Date(run.createdAt).toLocaleDateString()}</p></div><ChevronRight className="text-gray-400" /></div>))}</div>
+      <div className="grid gap-4">
+        {runs.map(run => {
+           const results = RunService.getResults(run.id);
+           const total = run.caseIds.length;
+           const pass = results.filter(r => r.status === 'PASS').length;
+           const fail = results.filter(r => r.status === 'FAIL').length;
+           const others = results.filter(r => r.status === 'BLOCK' || r.status === 'NA').length;
+           const untested = total > 0 ? total - (pass + fail + others) : 0;
+           
+           const passPct = total > 0 ? (pass / total) * 100 : 0;
+           const failPct = total > 0 ? (fail / total) * 100 : 0;
+           const otherPct = total > 0 ? (others / total) * 100 : 0;
+
+           return (
+             <div key={run.id} className="bg-white p-5 rounded-lg shadow border hover:shadow-md transition cursor-pointer" onClick={() => setActiveRun(run)}>
+               <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                       {run.title}
+                       {run.status === 'COMPLETED' && <CheckCircle size={16} className="text-green-500" />}
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">생성일: {new Date(run.createdAt).toLocaleDateString()} · 총 {total}개 케이스</p>
+                  </div>
+                  <ChevronRight className="text-gray-400" />
+               </div>
+               
+               {/* Stacked Progress Bar */}
+               <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
+                  {pass > 0 && <div style={{width: `${passPct}%`}} className="bg-green-500 h-full" title={`Pass: ${pass}`} />}
+                  {fail > 0 && <div style={{width: `${failPct}%`}} className="bg-red-500 h-full" title={`Fail: ${fail}`} />}
+                  {others > 0 && <div style={{width: `${otherPct}%`}} className="bg-gray-800 h-full" title={`Others: ${others}`} />}
+                  {/* Untested uses the background color */}
+               </div>
+               <div className="flex justify-between mt-2 text-xs font-semibold text-gray-500">
+                  <span className="text-green-600">{Math.round(passPct)}% Pass</span>
+                  <span>{untested} Untested</span>
+               </div>
+             </div>
+           );
+        })}
+      </div>
       <RunCreationModal isOpen={isRunModalOpen} onClose={() => setRunModalOpen(false)} project={project} onSubmit={handleCreateRun} />
     </div>
   );
@@ -1238,132 +1520,239 @@ const TestRunner = ({ project }: { project: Project }) => {
 const AdminPanel = () => {
   const { user } = useContext(AuthContext);
   const [users, setUsers] = useState<User[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserRole, setNewUserRole] = useState<Role>('INTERNAL');
 
-  useEffect(() => { setUsers(AuthService.getAllUsers()); }, []);
+  useEffect(() => {
+    setUsers(AuthService.getAllUsers());
+  }, []);
 
-  const toggleStatus = (targetUser: User) => {
-    const newStatus = targetUser.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    AuthService.updateUser({ ...targetUser, status: newStatus });
+  const handleUpdate = (updatedUser: User) => {
+    AuthService.updateUser(updatedUser);
     setUsers(AuthService.getAllUsers());
   };
 
-  const changeRole = (targetUser: User, newRole: Role) => {
-    AuthService.updateUser({ ...targetUser, role: newRole });
+  const handleCreate = () => {
+    if(!newUserEmail || !newUserName) return;
+    const newUser: User = {
+        id: Math.random().toString(36).substr(2, 9),
+        email: newUserEmail,
+        name: newUserName,
+        role: newUserRole,
+        status: 'ACTIVE'
+    };
+    AuthService.createUser(newUser);
     setUsers(AuthService.getAllUsers());
+    setIsModalOpen(false);
+    setNewUserEmail('');
+    setNewUserName('');
   };
 
-  if (user?.role !== 'ADMIN') return <div>접근 권한이 없습니다.</div>;
+  if (user?.role !== 'ADMIN') return <div className="p-8 text-center text-red-500">접근 권한이 없습니다.</div>;
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-6">사용자 관리</h2>
-      <div className="bg-white rounded shadow overflow-hidden">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold">사용자 관리</h2>
+        <button onClick={() => setIsModalOpen(true)} className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={16}/> 사용자 초대</button>
+      </div>
+      <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
-           <thead className="bg-gray-50 border-b"><tr><th className="p-3 text-left">이름</th><th className="p-3 text-left">이메일</th><th className="p-3 text-left">역할</th><th className="p-3 text-left">상태</th><th className="p-3 text-left">작업</th></tr></thead>
-           <tbody className="divide-y">{users.map(u => (<tr key={u.id}><td className="p-3 font-medium">{u.name}</td><td className="p-3 text-gray-500">{u.email}</td><td className="p-3"><select value={u.role} onChange={(e) => changeRole(u, e.target.value as Role)} className="border rounded p-1 text-sm" disabled={u.id === user.id}><option value="ADMIN">관리자</option><option value="INTERNAL">내부 QA</option><option value="EXTERNAL">외부 인원</option></select></td><td className="p-3">{u.status}</td><td className="p-3">{u.id !== user.id && (<button onClick={() => toggleStatus(u)} className="text-sm text-red-600 hover:underline">{u.status === 'ACTIVE' ? '차단' : '복구'}</button>)}</td></tr>))}</tbody>
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="p-4 text-left">이름</th>
+              <th className="p-4 text-left">이메일</th>
+              <th className="p-4 text-left">권한 (Role)</th>
+              <th className="p-4 text-left">상태</th>
+              <th className="p-4 text-left">관리</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {users.map(u => (
+              <tr key={u.id}>
+                <td className="p-4 font-medium">{u.name}</td>
+                <td className="p-4 text-gray-500">{u.email}</td>
+                <td className="p-4">
+                  <select 
+                    className="border rounded p-1 text-sm"
+                    value={u.role}
+                    onChange={(e) => handleUpdate({...u, role: e.target.value as Role})}
+                  >
+                    <option value="ADMIN">Admin</option>
+                    <option value="INTERNAL">Internal QA</option>
+                    <option value="EXTERNAL">External</option>
+                  </select>
+                </td>
+                <td className="p-4">
+                  <span className={`px-2 py-1 rounded text-xs font-bold ${u.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {u.status}
+                  </span>
+                </td>
+                <td className="p-4">
+                  {u.status === 'ACTIVE' ? (
+                    <button onClick={() => handleUpdate({...u, status: 'INACTIVE'})} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={16}/></button>
+                  ) : (
+                    <button onClick={() => handleUpdate({...u, status: 'ACTIVE'})} className="text-green-500 hover:bg-green-50 p-1 rounded"><CheckCircle size={16}/></button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
+
+       {/* Simple Modal for Create User */}
+       {isModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[90]">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="font-bold text-lg mb-4">새 사용자 초대</h3>
+            <div className="space-y-3">
+                <input className="w-full border p-2 rounded" placeholder="이름 (예: 홍길동)" value={newUserName} onChange={e => setNewUserName(e.target.value)} />
+                <input className="w-full border p-2 rounded" placeholder="이메일" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} />
+                <select className="w-full border p-2 rounded" value={newUserRole} onChange={e => setNewUserRole(e.target.value as Role)}>
+                    <option value="INTERNAL">Internal QA</option>
+                    <option value="EXTERNAL">External Tester</option>
+                    <option value="ADMIN">Admin</option>
+                </select>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+                <button onClick={() => setIsModalOpen(false)} className="px-3 py-1 text-gray-500">취소</button>
+                <button onClick={handleCreate} className="px-3 py-1 bg-primary text-white rounded">초대하기</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-// Directory View
-const DirectoryExplorer = ({ 
-  projects, onManageProjects, onOpenProject
-}: { 
-  projects: Project[], onManageProjects: () => void, onOpenProject: (p: Project) => void
-}) => {
-  return (
-    <div className="p-8 h-full bg-gray-50 flex flex-col">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2 text-lg font-bold text-gray-900"><Folder size={20} className="fill-current text-blue-500"/> Home</div>
-        <button onClick={onManageProjects} className="bg-primary text-white px-4 py-2 rounded shadow hover:bg-blue-600 flex items-center gap-2"><Plus size={16} /> 새 프로젝트</button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-         {projects.map(p => (<div key={p.id} onClick={() => onOpenProject(p)} className={`bg-white p-5 rounded-lg border shadow-sm hover:shadow-md cursor-pointer transition flex flex-col justify-between h-40 ${p.status === 'ARCHIVED' ? 'opacity-60 bg-gray-100' : ''}`}><div><div className="flex items-start justify-between mb-2"><Folder size={32} className={`text-blue-500 fill-current ${p.status === 'ARCHIVED' ? 'text-gray-400' : ''}`} />{p.status === 'ARCHIVED' && <Archive size={16} className="text-gray-500"/>}</div><h3 className="font-bold text-gray-800 truncate" title={p.title}>{p.title}</h3><p className="text-xs text-gray-500 mt-1 line-clamp-2">{p.description || '설명 없음'}</p></div><div className="text-xs text-gray-400 mt-2 flex justify-between items-end"><span>{new Date(p.createdAt).toLocaleDateString()}</span></div></div>))}
-      </div>
-    </div>
-  );
-};
-
-// Main App
 const App = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [currentView, setCurrentView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'DIRECTORY'>('DASHBOARD');
-  const [isProjectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('DASHBOARD');
   const [isProjectModalOpen, setProjectModalOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
-  const [allProjects, setAllProjects] = useState<Project[]>([]);
 
+  // Initialize Auth
   useEffect(() => {
-    const loggedIn = AuthService.getCurrentUser();
-    if (loggedIn) setUser(loggedIn);
-    refreshProjects();
+    const currentUser = AuthService.getCurrentUser();
+    setUser(currentUser);
   }, []);
 
-  const refreshProjects = () => {
-    const projs = ProjectService.getAll();
-    setAllProjects(projs);
-    if (!activeProject && projs.length > 0) setActiveProject(projs[0]);
-  };
+  // Load Projects
+  useEffect(() => {
+    if (user) {
+        const all = ProjectService.getAll();
+        setProjects(all);
+        if (all.length > 0 && !activeProject) {
+            setActiveProject(all[0]);
+        }
+    }
+  }, [user]);
 
   const login = (email: string) => {
     const u = AuthService.login(email);
-    if (u) { setUser(u); refreshProjects(); } else alert("사용자를 찾을 수 없습니다.");
+    if (u) setUser(u);
+    else alert("사용자를 찾을 수 없습니다. (초기 데이터: admin@company.com)");
   };
 
-  const logout = () => { AuthService.logout(); setUser(null); };
+  const logout = () => {
+    AuthService.logout();
+    setUser(null);
+  };
 
   const handleCreateProject = (title: string, desc: string, status: ProjectStatus) => {
-    ProjectService.create({ title, description: desc, status });
-    refreshProjects();
-    setProjectModalOpen(false);
-  };
-
-  const handleUpdateProject = (title: string, desc: string, status: ProjectStatus) => {
-    if (editingProject) {
-      ProjectService.update({ ...editingProject, title, description: desc, status });
-      refreshProjects();
-      if (activeProject?.id === editingProject.id) { setActiveProject({ ...editingProject, title, description: desc, status }); }
-      setProjectModalOpen(false);
-      setEditingProject(undefined);
-    }
+     const newP = ProjectService.create({ title, description: desc, status });
+     setProjects([...projects, newP]);
+     setActiveProject(newP);
   };
 
   if (!user) return <AuthContext.Provider value={{ user, login, logout }}><LoginScreen /></AuthContext.Provider>;
 
   return (
     <AuthContext.Provider value={{ user, login, logout }}>
-      <div className="flex h-screen bg-gray-50">
-        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col relative z-20">
-          <div className="border-b border-slate-800 relative">
-             <button onClick={() => setProjectSwitcherOpen(!isProjectSwitcherOpen)} className="w-full p-4 flex items-center justify-between hover:bg-slate-800 transition"><div className="flex flex-col items-start overflow-hidden"><div className="text-xs text-blue-500 font-bold uppercase mb-0.5">Project</div><div className="font-bold text-white text-sm truncate w-full text-left">{activeProject ? activeProject.title : 'No Project'}</div></div><ChevronDown size={16} /></button>
-             {isProjectSwitcherOpen && (<div className="absolute top-full left-0 w-64 bg-slate-800 shadow-xl border-t border-slate-700 flex flex-col z-30"><div className="max-h-60 overflow-y-auto">{allProjects.filter(p => p.status === 'ACTIVE').map(p => (<button key={p.id} onClick={() => {setActiveProject(p); setProjectSwitcherOpen(false); setCurrentView('DASHBOARD');}} className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-700 border-b border-slate-700/50 flex items-center justify-between ${activeProject?.id === p.id ? 'bg-slate-700/50 text-white font-semibold' : ''}`}><span className="truncate">{p.title}</span></button>))}</div><button onClick={() => {setCurrentView('DIRECTORY'); setProjectSwitcherOpen(false);}} className="w-full text-left px-4 py-3 text-sm font-semibold text-blue-400 hover:text-blue-300 hover:bg-slate-700 flex items-center gap-2"><Folder size={16} /> 모든 프로젝트 보기</button></div>)}
-          </div>
-          <nav className="flex-1 p-2 space-y-1 mt-2">
-            <button onClick={() => setCurrentView('DASHBOARD')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'DASHBOARD' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}><Layout size={18} /> 대시보드</button>
-            <button onClick={() => setCurrentView('CASES')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'CASES' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}><FolderTree size={18} /> 테스트 케이스</button>
-            <button onClick={() => setCurrentView('RUNS')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'RUNS' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}><PlayCircle size={18} /> 테스트 실행</button>
-            {user.role === 'ADMIN' && (<button onClick={() => setCurrentView('ADMIN')} className={`w-full flex items-center gap-3 p-2 rounded ${currentView === 'ADMIN' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}><Users size={18} /> 사용자 관리</button>)}
-          </nav>
-          <div className="p-4 border-t border-slate-800"><button onClick={logout} className="w-full flex items-center gap-2 text-sm text-slate-400 hover:text-white"><LogOut size={16} /> 로그아웃</button></div>
-        </aside>
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="h-14 bg-white border-b flex items-center px-6 justify-between"><div className="flex items-center gap-2 text-gray-500">{currentView === 'DIRECTORY' ? <span className="font-semibold text-gray-900 flex items-center gap-2"><Folder size={18}/> 프로젝트 디렉토리</span> : <span>{activeProject?.title}</span>}</div>{activeProject && currentView !== 'DIRECTORY' && user.role === 'ADMIN' && (<button onClick={() => { setEditingProject(activeProject); setProjectModalOpen(true); }} className="p-1.5 hover:bg-gray-100 rounded text-gray-500"><Settings size={18} /></button>)}</header>
-          <div className="flex-1 overflow-auto bg-gray-50">
-             {currentView === 'DIRECTORY' ? (<DirectoryExplorer projects={allProjects} onManageProjects={() => { setEditingProject(undefined); setProjectModalOpen(true); }} onOpenProject={(p) => { setActiveProject(p); setCurrentView('DASHBOARD'); }} />) : !activeProject ? (<div className="h-full flex flex-col items-center justify-center text-gray-400">선택된 프로젝트가 없습니다.</div>) : (
-               <>
-                 {currentView === 'DASHBOARD' && <Dashboard project={activeProject} />}
-                 {currentView === 'CASES' && <TestCaseManager project={activeProject} />}
-                 {currentView === 'RUNS' && <TestRunner project={activeProject} />}
-                 {currentView === 'ADMIN' && <AdminPanel />}
-               </>
-             )}
-          </div>
-        </main>
+      <div className="flex h-screen w-screen overflow-hidden">
+        {/* Sidebar */}
+        <div className="w-64 bg-slate-900 text-white flex flex-col">
+           <div className="p-4 border-b border-slate-700">
+             <div className="text-xs text-slate-400 font-bold uppercase mb-2">Project</div>
+             <div className="relative group">
+                <button className="w-full text-left font-bold text-lg flex items-center justify-between">
+                    <span className="truncate">{activeProject?.title || 'No Project'}</span>
+                    <ChevronDown size={16} />
+                </button>
+                {/* Project Dropdown */}
+                <div className="hidden group-hover:block absolute top-full left-0 w-full bg-white text-gray-900 shadow-xl rounded z-50 mt-1 overflow-hidden">
+                    {projects.map(p => (
+                        <div key={p.id} onClick={() => {setActiveProject(p); setActiveTab('DASHBOARD');}} className="p-2 hover:bg-blue-50 cursor-pointer text-sm font-medium border-b last:border-0">
+                            {p.title}
+                        </div>
+                    ))}
+                    {user.role === 'ADMIN' && (
+                        <div onClick={() => setProjectModalOpen(true)} className="p-2 bg-gray-50 text-primary text-center cursor-pointer text-sm font-bold hover:bg-gray-100 flex items-center justify-center gap-1">
+                            <Plus size={14} /> 새 프로젝트
+                        </div>
+                    )}
+                </div>
+             </div>
+           </div>
+
+           <nav className="flex-1 p-4 space-y-2">
+              <button onClick={() => setActiveTab('DASHBOARD')} className={`w-full flex items-center gap-3 px-3 py-2 rounded transition ${activeTab === 'DASHBOARD' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                 <LayoutDashboard size={20} /> 대시보드
+              </button>
+              <button onClick={() => setActiveTab('CASES')} className={`w-full flex items-center gap-3 px-3 py-2 rounded transition ${activeTab === 'CASES' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                 <FolderTree size={20} /> 테스트 케이스
+              </button>
+              <button onClick={() => setActiveTab('RUNS')} className={`w-full flex items-center gap-3 px-3 py-2 rounded transition ${activeTab === 'RUNS' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                 <PlayCircle size={20} /> 테스트 실행
+              </button>
+              {user.role === 'ADMIN' && (
+                  <button onClick={() => setActiveTab('ADMIN')} className={`w-full flex items-center gap-3 px-3 py-2 rounded transition ${activeTab === 'ADMIN' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                    <Users size={20} /> 사용자 관리
+                  </button>
+              )}
+           </nav>
+
+           <div className="p-4 border-t border-slate-700">
+              <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-sm">
+                      {user.name.substring(0,1)}
+                  </div>
+                  <div className="overflow-hidden">
+                      <div className="text-sm font-bold truncate">{user.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{user.email}</div>
+                  </div>
+              </div>
+              <button onClick={logout} className="w-full flex items-center gap-2 text-slate-400 hover:text-white text-sm">
+                 <LogOut size={16} /> 로그아웃
+              </button>
+           </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 overflow-hidden bg-gray-50 flex flex-col">
+            {activeProject ? (
+                <>
+                    {activeTab === 'DASHBOARD' && <Dashboard project={activeProject} />}
+                    {activeTab === 'CASES' && <TestCaseManager project={activeProject} />}
+                    {activeTab === 'RUNS' && <TestRunner project={activeProject} />}
+                    {activeTab === 'ADMIN' && <AdminPanel />}
+                </>
+            ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                    <Layout size={48} className="mb-4" />
+                    <p>프로젝트를 선택하거나 생성해주세요.</p>
+                    {user.role === 'ADMIN' && (
+                        <button onClick={() => setProjectModalOpen(true)} className="mt-4 px-4 py-2 bg-primary text-white rounded font-bold">프로젝트 생성</button>
+                    )}
+                </div>
+            )}
+        </div>
       </div>
-      <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setProjectModalOpen(false); setEditingProject(undefined); }} onSubmit={editingProject ? handleUpdateProject : handleCreateProject} initialData={editingProject} />
+      <ProjectModal isOpen={isProjectModalOpen} onClose={() => setProjectModalOpen(false)} onSubmit={handleCreateProject} />
     </AuthContext.Provider>
   );
 };
