@@ -81,6 +81,16 @@ export interface TestRun {
   caseIds: string[];
 }
 
+export interface ExecutionHistoryItem {
+  status: TestStatus;
+  actualResult: string;
+  comment: string;
+  testerId: string;
+  timestamp: string;
+  issues?: Issue[];
+  stepResults?: { stepId: string; status: TestStatus }[];
+}
+
 export interface TestResult {
   id: string;
   runId: string;
@@ -93,6 +103,7 @@ export interface TestResult {
   images?: string[];
   stepResults?: { stepId: string; status: TestStatus }[];
   issues?: Issue[]; // [NEW] Linked defects
+  history?: ExecutionHistoryItem[]; // [NEW] History within the run
 }
 
 export interface AuthState {

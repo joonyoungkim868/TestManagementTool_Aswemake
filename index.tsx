@@ -5,13 +5,13 @@ import {
   Plus, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
   Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List, Trash2, Bug, ExternalLink, BarChart2,
-  Table, Link as LinkIcon, MinusCircle, HelpCircle, LayoutGrid
+  Table, Link as LinkIcon, MinusCircle, HelpCircle, LayoutGrid, RotateCcw
 } from 'lucide-react';
 import { 
   AuthService, ProjectService, TestCaseService, RunService, HistoryService 
 } from './storage';
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus, Issue 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus, Issue, ExecutionHistoryItem
 } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
@@ -23,7 +23,8 @@ const AuthContext = createContext<{
   user: User | null;
   login: (email: string) => Promise<void>;
   logout: () => void;
-}>({ user: null, login: async () => {}, logout: () => {} });
+  users: User[];
+}>({ user: null, login: async () => {}, logout: () => {}, users: [] });
 
 // --- Utilities for Import/Export ---
 
@@ -142,6 +143,145 @@ const formatTextWithNumbers = (text: string) => {
 };
 
 // --- Components ---
+
+const StepDiffViewer = ({ oldSteps, newSteps }: { oldSteps: TestStep[], newSteps: TestStep[] }) => {
+  const maxLen = Math.max(oldSteps?.length || 0, newSteps?.length || 0);
+  const rows = [];
+
+  for (let i = 0; i < maxLen; i++) {
+    const o = oldSteps?.[i];
+    const n = newSteps?.[i];
+    
+    if (!o && n) {
+      // Added
+      rows.push(
+        <div key={i} className="bg-green-50 border-l-4 border-green-400 p-2 mb-2 text-xs">
+          <div className="font-bold text-green-700">Step {i + 1} (Added)</div>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <div><span className="font-semibold">Act:</span> {n.step}</div>
+            <div><span className="font-semibold">Exp:</span> {n.expected}</div>
+          </div>
+        </div>
+      );
+    } else if (o && !n) {
+      // Removed
+      rows.push(
+        <div key={i} className="bg-red-50 border-l-4 border-red-400 p-2 mb-2 text-xs opacity-70">
+          <div className="font-bold text-red-700">Step {i + 1} (Removed)</div>
+          <div className="grid grid-cols-2 gap-2 mt-1 line-through text-gray-500">
+             <div>{o.step}</div><div>{o.expected}</div>
+          </div>
+        </div>
+      );
+    } else if (JSON.stringify(o) !== JSON.stringify(n)) {
+      // Modified
+      rows.push(
+        <div key={i} className="bg-yellow-50 border-l-4 border-yellow-400 p-2 mb-2 text-xs">
+          <div className="font-bold text-yellow-700">Step {i + 1} (Modified)</div>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <div className="space-y-1">
+               <div className="text-red-500 line-through bg-red-100/50 p-0.5">{o?.step}</div>
+               <div className="text-green-600 bg-green-100/50 p-0.5">{n?.step}</div>
+            </div>
+            <div className="space-y-1">
+               <div className="text-red-500 line-through bg-red-100/50 p-0.5">{o?.expected}</div>
+               <div className="text-green-600 bg-green-100/50 p-0.5">{n?.expected}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+  
+  if (rows.length === 0) return <div className="text-gray-400 text-xs italic">No changes in steps</div>;
+  return <div>{rows}</div>;
+};
+
+const HistoryModal = ({ isOpen, onClose, logs }: { isOpen: boolean, onClose: () => void, logs: HistoryLog[] }) => {
+  const [selectedLog, setSelectedLog] = useState<HistoryLog | null>(null);
+
+  useEffect(() => {
+    if (isOpen && logs.length > 0) setSelectedLog(logs[0]);
+  }, [isOpen, logs]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[80]">
+      <div className="bg-white rounded-lg shadow-xl w-[900px] h-[70vh] flex flex-col">
+        <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+          <h3 className="font-bold text-lg flex items-center gap-2"><History size={20}/> 변경 이력 (History Timeline)</h3>
+          <button onClick={onClose}><XCircle size={20} /></button>
+        </div>
+        <div className="flex-1 flex overflow-hidden">
+          {/* Timeline List */}
+          <div className="w-1/3 border-r bg-gray-50 overflow-y-auto">
+             {logs.length === 0 && <div className="p-4 text-gray-500 text-center text-sm">변경 이력이 없습니다.</div>}
+             {logs.map((log, idx) => (
+               <div 
+                 key={log.id} 
+                 onClick={() => setSelectedLog(log)}
+                 className={`p-4 border-b cursor-pointer transition ${selectedLog?.id === log.id ? 'bg-white border-l-4 border-l-primary shadow-sm' : 'hover:bg-gray-100'}`}
+               >
+                 <div className="flex items-center gap-2 mb-1">
+                   <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">{log.modifierName.charAt(0)}</div>
+                   <div>
+                     <div className="text-sm font-bold text-gray-800">{log.modifierName}</div>
+                     <div className="text-xs text-gray-500">{new Date(log.timestamp).toLocaleString()}</div>
+                   </div>
+                 </div>
+                 <div className="mt-2 text-xs font-semibold text-gray-600">
+                   {log.action === 'CREATE' ? 'Created Case' : 
+                    log.changes.length > 0 ? `${log.changes.length} fields changed` : 'Updated'}
+                 </div>
+               </div>
+             ))}
+          </div>
+          {/* Diff View */}
+          <div className="flex-1 overflow-y-auto p-6 bg-white">
+            {selectedLog ? (
+               <div className="space-y-6">
+                 <div className="flex justify-between items-center border-b pb-4">
+                    <h4 className="font-bold text-xl">{selectedLog.action}</h4>
+                    <span className="text-sm text-gray-500">{new Date(selectedLog.timestamp).toLocaleString()}</span>
+                 </div>
+                 {selectedLog.changes.map((change, idx) => (
+                   <div key={idx} className="bg-gray-50 p-4 rounded border border-gray-200">
+                      <div className="font-bold text-sm text-gray-700 uppercase mb-3 border-b border-gray-200 pb-1">{change.field}</div>
+                      
+                      {change.field === 'steps' ? (
+                        <StepDiffViewer oldSteps={change.oldVal || []} newSteps={change.newVal || []} />
+                      ) : (
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                           <div className="bg-red-50 p-2 rounded border border-red-100">
+                             <div className="text-xs font-bold text-red-400 mb-1">BEFORE</div>
+                             <div className="text-red-900 whitespace-pre-wrap break-words">{String(change.oldVal || '(Empty)')}</div>
+                           </div>
+                           <div className="bg-green-50 p-2 rounded border border-green-100">
+                             <div className="text-xs font-bold text-green-400 mb-1">AFTER</div>
+                             <div className="text-green-900 whitespace-pre-wrap break-words">{String(change.newVal || '(Empty)')}</div>
+                           </div>
+                        </div>
+                      )}
+                   </div>
+                 ))}
+                 {selectedLog.changes.length === 0 && selectedLog.action === 'CREATE' && (
+                   <div className="text-center py-10 text-gray-400">
+                     초기 생성 버전입니다.
+                   </div>
+                 )}
+               </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400">
+                좌측 목록에서 이력을 선택하세요.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const LoginScreen = () => {
   const { login } = useContext(AuthContext);
@@ -1032,7 +1172,7 @@ const ImportExportModal = ({
 };
 
 const TestCaseManager = ({ project }: { project: Project }) => {
-  const { user } = useContext(AuthContext);
+  const { user, users } = useContext(AuthContext);
   const [sections, setSections] = useState<Section[]>([]);
   const [cases, setCases] = useState<TestCase[]>([]);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
@@ -1040,6 +1180,8 @@ const TestCaseManager = ({ project }: { project: Project }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isImportOpen, setImportOpen] = useState(false);
   const [isSectionModalOpen, setSectionModalOpen] = useState(false);
+  const [isHistoryOpen, setHistoryOpen] = useState(false);
+  const [caseHistory, setCaseHistory] = useState<HistoryLog[]>([]);
 
   const [editForm, setEditForm] = useState<Partial<TestCase>>({});
 
@@ -1059,6 +1201,12 @@ const TestCaseManager = ({ project }: { project: Project }) => {
     setSelectedCase(null);
     setIsEditing(false);
   }, [project]);
+
+  useEffect(() => {
+    if (selectedCase && isHistoryOpen) {
+      HistoryService.getLogs(selectedCase.id).then(setCaseHistory);
+    }
+  }, [isHistoryOpen, selectedCase]);
 
   const filteredCases = selectedSectionId 
     ? cases.filter(c => c.sectionId === selectedSectionId)
@@ -1080,10 +1228,13 @@ const TestCaseManager = ({ project }: { project: Project }) => {
 
   const handleSaveCase = async () => {
     if (!editForm.title || !user) return;
-    await TestCaseService.saveCase(editForm, user);
+    const saved = await TestCaseService.saveCase(editForm, user);
     setIsEditing(false);
     loadData();
+    setSelectedCase(saved); // Load the saved case
   };
+
+  const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
   return (
     <div className="flex h-full bg-white rounded shadow overflow-hidden">
@@ -1217,7 +1368,7 @@ const TestCaseManager = ({ project }: { project: Project }) => {
             </div>
           </div>
         ) : selectedCase ? (
-          <div className="flex-1 p-8 overflow-y-auto">
+          <div className="flex-1 p-8 overflow-y-auto relative">
              <div className="flex justify-between items-start mb-6">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
@@ -1225,6 +1376,23 @@ const TestCaseManager = ({ project }: { project: Project }) => {
                     <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${selectedCase.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{selectedCase.priority} Priority</span>
                   </div>
                   <h2 className="text-2xl font-bold text-gray-900">{selectedCase.title}</h2>
+                  
+                  {/* [NEW] Metadata Header */}
+                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <Clock size={12}/> Created by {getUserName(selectedCase.authorId)} on {new Date(selectedCase.createdAt).toLocaleString()}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Edit size={12}/> Updated by 
+                      <button 
+                        onClick={() => setHistoryOpen(true)}
+                        className="text-blue-600 font-bold hover:underline flex items-center gap-1 ml-1"
+                      >
+                         (History) {new Date(selectedCase.updatedAt).toLocaleString()}
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
                 <button 
                   onClick={() => { setEditForm(JSON.parse(JSON.stringify(selectedCase))); setIsEditing(true); }}
@@ -1294,12 +1462,13 @@ const TestCaseManager = ({ project }: { project: Project }) => {
         sections={sections} 
         onImportSuccess={loadData}
       />
+      <HistoryModal isOpen={isHistoryOpen} onClose={() => setHistoryOpen(false)} logs={caseHistory} />
     </div>
   );
 };
 
 const TestRunner = ({ project }: { project: Project }) => {
-  const { user } = useContext(AuthContext);
+  const { user, users } = useContext(AuthContext);
   const [runs, setRuns] = useState<TestRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<TestRun | null>(null);
   const [runResults, setRunResults] = useState<TestResult[]>([]);
@@ -1316,6 +1485,10 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [defectLabel, setDefectLabel] = useState('');
   const [defectUrl, setDefectUrl] = useState('');
   const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
+  
+  // [NEW] Execution History State
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
 
   const loadRuns = async () => {
     try {
@@ -1372,6 +1545,7 @@ const TestRunner = ({ project }: { project: Project }) => {
         setDefectUrl('');
       }
       setStepResults(res.stepResults || []);
+      setCurrentResultHistory(res.history || []);
     } else {
       setStatus('UNTESTED');
       setActual('');
@@ -1379,7 +1553,9 @@ const TestRunner = ({ project }: { project: Project }) => {
       setDefectLabel('');
       setDefectUrl('');
       setStepResults([]);
+      setCurrentResultHistory([]);
     }
+    setHistoryExpanded(false);
   };
 
   const autoSave = async (
@@ -1411,11 +1587,19 @@ const TestRunner = ({ project }: { project: Project }) => {
 
     await RunService.saveResult(payload);
     
-    setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult]);
+    // Optimistic update
+    const updatedRes = { ...payload, id: 'temp' } as TestResult;
+    setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), updatedRes]);
     
     const currentRunStats = runStats[selectedRun.id] || [];
-    const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult];
+    const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), updatedRes];
     setRunStats(prev => ({ ...prev, [selectedRun.id]: newStats }));
+    
+    // Refresh to get latest history
+    RunService.getResults(selectedRun.id).then(results => {
+       const fresh = results.find(r => r.caseId === currentCase.id);
+       if (fresh) setCurrentResultHistory(fresh.history || []);
+    });
   };
 
   const handleStepStatusChange = (stepId: string, newStepStatus: TestStatus) => {
@@ -1459,6 +1643,8 @@ const TestRunner = ({ project }: { project: Project }) => {
     const untested = total - tested;
     return { total, pass, fail, block, untested };
   };
+  
+  const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
 
   const stats = getRunStats();
 
@@ -1724,6 +1910,50 @@ const TestRunner = ({ project }: { project: Project }) => {
                     </button>
                  </div>
               </div>
+              
+              {/* [NEW] Execution History */}
+              <div className="mt-8 border-t pt-4">
+                <button 
+                  onClick={() => setHistoryExpanded(!historyExpanded)}
+                  className="w-full flex justify-between items-center text-gray-500 font-bold hover:text-gray-700 p-2"
+                >
+                  <span className="flex items-center gap-2"><RotateCcw size={16}/> 실행 이력 (Execution History)</span>
+                  {historyExpanded ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+                </button>
+                
+                {historyExpanded && (
+                  <div className="mt-2 space-y-2 bg-gray-50 rounded p-4">
+                    {currentResultHistory.length === 0 && <div className="text-center text-gray-400 text-sm">이전 실행 기록이 없습니다.</div>}
+                    {currentResultHistory.map((h, idx) => (
+                      <div key={idx} className="bg-white border rounded p-3 text-sm shadow-sm">
+                        <div className="flex justify-between mb-2">
+                           <div className="flex items-center gap-2">
+                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                               h.status === 'PASS' ? 'bg-green-100 text-green-700' : 
+                               h.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                             }`}>{h.status}</span>
+                             <span className="font-bold text-gray-700">{getUserName(h.testerId)}</span>
+                           </div>
+                           <span className="text-xs text-gray-400">{new Date(h.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-gray-600">
+                          {h.actualResult && <div><span className="font-semibold">Actual:</span> {h.actualResult}</div>}
+                          {h.comment && <div><span className="font-semibold">Comment:</span> {h.comment}</div>}
+                        </div>
+                        {h.issues && h.issues.length > 0 && (
+                          <div className="mt-2 pt-2 border-t flex gap-2">
+                             {h.issues.map(issue => (
+                               <a key={issue.id} href={issue.url} target="_blank" className="text-red-600 text-xs font-bold flex items-center gap-1 hover:underline">
+                                 <Bug size={12}/> {issue.label}
+                               </a>
+                             ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
            </div>
         </div>
       </div>
@@ -1769,6 +1999,7 @@ const App = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'PROJECTS'>('DASHBOARD');
   const [isProjectModalOpen, setProjectModalOpen] = useState(false);
   const [isProjectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -1778,6 +2009,7 @@ const App = () => {
     if (u && u.id && u.name && u.email) {
       setUser(u);
       loadProjects();
+      AuthService.getAllUsers().then(setUsers);
     } else {
       AuthService.logout();
       setUser(null);
@@ -1797,6 +2029,7 @@ const App = () => {
     if (u) {
       setUser(u);
       loadProjects();
+      AuthService.getAllUsers().then(setUsers);
     } else {
       alert("로그인 실패");
     }
@@ -1810,14 +2043,14 @@ const App = () => {
 
   if (!user) {
     return (
-      <AuthContext.Provider value={{ user, login, logout }}>
+      <AuthContext.Provider value={{ user, login, logout, users: [] }}>
         <LoginScreen />
       </AuthContext.Provider>
     );
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, users }}>
       <div className="flex h-screen bg-gray-100 text-gray-900 font-sans">
         <div className="w-64 bg-gray-900 text-white flex flex-col shadow-xl">
           <div className="p-4 border-b border-gray-800">

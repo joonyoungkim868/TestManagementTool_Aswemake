@@ -1,5 +1,5 @@
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, Issue, Role 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, Issue, Role, ExecutionHistoryItem 
 } from './types';
 import { supabase } from './supabaseClient';
 
@@ -330,7 +330,22 @@ export const RunService = {
 
   saveResult: async (data: Partial<TestResult>) => {
     if (USE_SUPABASE) {
-      const { data: existing } = await supabase.from('testResults').select('id').eq('runId', data.runId).eq('caseId', data.caseId).single();
+      // Supabase implementation simplified for this example
+      const { data: existing } = await supabase.from('testResults').select('*').eq('runId', data.runId).eq('caseId', data.caseId).single();
+      
+      let history: ExecutionHistoryItem[] = existing?.history || [];
+      if (existing && existing.status !== 'UNTESTED') {
+         history.unshift({
+            status: existing.status,
+            actualResult: existing.actualResult,
+            comment: existing.comment,
+            testerId: existing.testerId,
+            timestamp: existing.timestamp,
+            issues: existing.issues,
+            stepResults: existing.stepResults
+         });
+      }
+
       const payload = {
         status: data.status,
         actualResult: data.actualResult,
@@ -338,7 +353,8 @@ export const RunService = {
         testerId: data.testerId,
         stepResults: data.stepResults,
         issues: data.issues,
-        timestamp: now()
+        timestamp: now(),
+        history
       };
 
       if (existing) {
@@ -354,6 +370,25 @@ export const RunService = {
     } else {
       const list = getLocal<TestResult>(STORAGE_KEYS.RESULTS);
       const idx = list.findIndex(r => r.runId === data.runId && r.caseId === data.caseId);
+      
+      let history: ExecutionHistoryItem[] = [];
+      if (idx !== -1) {
+        const existing = list[idx];
+        history = existing.history || [];
+        // Only push to history if status has changed or actual result is modified to avoid spam
+        if (existing.status !== 'UNTESTED') {
+           history.unshift({
+             status: existing.status,
+             actualResult: existing.actualResult,
+             comment: existing.comment,
+             testerId: existing.testerId,
+             timestamp: existing.timestamp,
+             issues: existing.issues,
+             stepResults: existing.stepResults
+           });
+        }
+      }
+
       const payload = {
         runId: data.runId!,
         caseId: data.caseId!,
@@ -363,7 +398,8 @@ export const RunService = {
         testerId: data.testerId!,
         stepResults: data.stepResults || [],
         issues: data.issues || [],
-        timestamp: now()
+        timestamp: now(),
+        history
       };
 
       if (idx !== -1) {
@@ -395,7 +431,7 @@ export const HistoryService = {
       changes.push({ field: 'ALL', oldVal: null, newVal: 'CREATED' });
     } else {
       for (const key of Object.keys(newObj)) {
-        if (key === 'updatedAt' || key === 'createdAt') continue;
+        if (key === 'updatedAt' || key === 'createdAt' || key === 'history') continue;
         if (JSON.stringify(oldObj[key]) !== JSON.stringify(newObj[key])) {
           changes.push({ field: key, oldVal: oldObj[key], newVal: newObj[key] });
         }
