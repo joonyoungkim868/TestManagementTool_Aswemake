@@ -2,7 +2,7 @@ import React, { useState, useEffect, createContext, useContext, useRef } from 'r
 import { createRoot } from 'react-dom/client';
 import { 
   Layout, LayoutDashboard, FolderTree, PlayCircle, Settings, Users, LogOut, 
-  Plus, ChevronRight, ChevronDown, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
+  Plus, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
   Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List, Trash2, Bug, ExternalLink, BarChart2,
   Table, Link as LinkIcon, MinusCircle, HelpCircle, LayoutGrid
@@ -133,6 +133,14 @@ const normalizeType = (val: string): 'FUNCTIONAL' | 'UI' | 'PERFORMANCE' | 'SECU
   if (v.includes('PERF') || v.includes('성능')) return 'PERFORMANCE';
   if (v.includes('SEC') || v.includes('보안')) return 'SECURITY';
   return 'FUNCTIONAL'; // Default
+};
+
+// Format text with numbered list line breaks
+const formatTextWithNumbers = (text: string) => {
+  if (!text) return '';
+  // Replace "1.", "2." with "\n1.", "\n2." (avoiding double newlines if already present)
+  // This regex looks for a digit+dot that is NOT preceded by a newline
+  return text.replace(/([^\n])(\d+\.)/g, '$1\n$2');
 };
 
 // --- Components ---
@@ -1255,7 +1263,7 @@ const TestCaseManager = ({ project }: { project: Project }) => {
                {selectedCase.precondition && (
                  <div className="bg-yellow-50 p-4 rounded border border-yellow-100">
                    <h4 className="font-bold text-sm text-yellow-800 mb-1">사전 조건</h4>
-                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedCase.precondition}</p>
+                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{formatTextWithNumbers(selectedCase.precondition)}</p>
                  </div>
                )}
                
@@ -1274,8 +1282,8 @@ const TestCaseManager = ({ project }: { project: Project }) => {
                        {selectedCase.steps.map((s, idx) => (
                          <tr key={idx} className="hover:bg-gray-50">
                            <td className="p-3 text-center text-gray-400">{idx+1}</td>
-                           <td className="p-3 border-r whitespace-pre-wrap">{s.step}</td>
-                           <td className="p-3 whitespace-pre-wrap">{s.expected}</td>
+                           <td className="p-3 border-r whitespace-pre-wrap">{formatTextWithNumbers(s.step)}</td>
+                           <td className="p-3 whitespace-pre-wrap">{formatTextWithNumbers(s.expected)}</td>
                          </tr>
                        ))}
                        {selectedCase.steps.length === 0 && (
@@ -1324,6 +1332,7 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [isReportOpen, setReportOpen] = useState(false);
+  const [isDashboardOpen, setDashboardOpen] = useState(true); // Collapsible Dashboard state
 
   // Execution Form
   const [status, setStatus] = useState<TestStatus>('UNTESTED');
@@ -1331,6 +1340,7 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [comment, setComment] = useState('');
   const [defectLabel, setDefectLabel] = useState('');
   const [defectUrl, setDefectUrl] = useState('');
+  const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
 
   const loadRuns = () => RunService.getAll(project.id).then(setRuns);
 
@@ -1346,9 +1356,7 @@ const TestRunner = ({ project }: { project: Project }) => {
         RunService.getResults(selectedRun.id),
         TestCaseService.getSections(project.id)
       ]).then(([allCases, results, sections]) => {
-        // Map sections
         const sectionMap = new Map(sections.map(s => [s.id, s.title]));
-        // Filter cases that are in this run
         const casesInRun = allCases
           .filter(c => selectedRun.caseIds.includes(c.id))
           .map(c => ({ ...c, sectionTitle: sectionMap.get(c.sectionId) }));
@@ -1368,7 +1376,6 @@ const TestRunner = ({ project }: { project: Project }) => {
       setStatus(res.status);
       setActual(res.actualResult);
       setComment(res.comment);
-      // Load first issue for demo
       if (res.issues && res.issues.length > 0) {
         setDefectLabel(res.issues[0].label);
         setDefectUrl(res.issues[0].url);
@@ -1376,46 +1383,102 @@ const TestRunner = ({ project }: { project: Project }) => {
         setDefectLabel('');
         setDefectUrl('');
       }
+      setStepResults(res.stepResults || []);
     } else {
       setStatus('UNTESTED');
       setActual('');
       setComment('');
       setDefectLabel('');
       setDefectUrl('');
+      setStepResults([]);
     }
   };
 
-  const handleSaveResult = async (next: boolean) => {
+  // Autosave function (internal usage)
+  const autoSave = async (
+    targetStatus: TestStatus, 
+    targetActual: string, 
+    targetComment: string, 
+    targetDefectLabel: string, 
+    targetDefectUrl: string,
+    targetStepResults: { stepId: string, status: TestStatus }[]
+  ) => {
     if (!selectedRun || !runCases[activeCaseIndex] || !user) return;
     
     const currentCase = runCases[activeCaseIndex];
     const issues: Issue[] = [];
-    if (defectLabel && defectUrl) {
-      issues.push({ id: Date.now().toString(), label: defectLabel, url: defectUrl });
+    if (targetDefectLabel && targetDefectUrl) {
+      issues.push({ id: Date.now().toString(), label: targetDefectLabel, url: targetDefectUrl });
     }
 
     const payload: Partial<TestResult> = {
       runId: selectedRun.id,
       caseId: currentCase.id,
-      status,
-      actualResult: actual,
-      comment,
+      status: targetStatus,
+      actualResult: targetActual,
+      comment: targetComment,
       testerId: user.id,
+      stepResults: targetStepResults,
       issues
     };
 
     await RunService.saveResult(payload);
     
-    // Update local state
-    const updatedResults = [...runResults.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult];
-    setRunResults(updatedResults);
+    // Update local state results array seamlessly
+    setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), { ...payload, id: 'temp' } as TestResult]);
+  };
 
-    if (next && activeCaseIndex < runCases.length - 1) {
+  const handleStepStatusChange = (stepId: string, newStepStatus: TestStatus) => {
+    const newStepResults = stepResults.filter(sr => sr.stepId !== stepId);
+    newStepResults.push({ stepId, status: newStepStatus });
+    setStepResults(newStepResults);
+
+    // Auto-calculate parent status based on step logic
+    let calculatedStatus: TestStatus = 'PASS';
+    const hasFail = newStepResults.some(s => s.status === 'FAIL');
+    const hasBlock = newStepResults.some(s => s.status === 'BLOCK');
+    
+    if (hasFail) calculatedStatus = 'FAIL';
+    else if (hasBlock) calculatedStatus = 'BLOCK';
+    
+    // Override local status state
+    setStatus(calculatedStatus);
+
+    // Autosave immediately
+    autoSave(calculatedStatus, actual, comment, defectLabel, defectUrl, newStepResults);
+  };
+
+  const handleStatusChange = (newStatus: TestStatus) => {
+    setStatus(newStatus);
+    autoSave(newStatus, actual, comment, defectLabel, defectUrl, stepResults);
+  };
+
+  // Force Pass & Next
+  const forcePassAndNext = async () => {
+    if (!selectedRun || !runCases[activeCaseIndex]) return;
+    
+    // 1. Save current case as PASS regardless of current status
+    await autoSave('PASS', actual, comment, defectLabel, defectUrl, stepResults);
+    
+    // 2. Move to next
+    if (activeCaseIndex < runCases.length - 1) {
       const nextIdx = activeCaseIndex + 1;
       setActiveCaseIndex(nextIdx);
-      loadResultForCase(runCases[nextIdx], updatedResults);
+      loadResultForCase(runCases[nextIdx], runResults);
     }
   };
+
+  const getRunStats = () => {
+    const total = runCases.length;
+    const pass = runResults.filter(r => r.status === 'PASS').length;
+    const fail = runResults.filter(r => r.status === 'FAIL').length;
+    const block = runResults.filter(r => r.status === 'BLOCK').length;
+    const tested = runResults.length;
+    const untested = total - tested;
+    return { total, pass, fail, block, untested };
+  };
+
+  const stats = getRunStats();
 
   if (!selectedRun) {
     return (
@@ -1428,7 +1491,7 @@ const TestRunner = ({ project }: { project: Project }) => {
         </div>
         <div className="grid grid-cols-1 gap-4">
           {runs.map(run => {
-            const results = []; // Would need to fetch results for list view really, simplifying here
+            const results = []; 
             return (
               <div key={run.id} className="bg-white p-4 rounded shadow border hover:border-primary cursor-pointer group" onClick={() => setSelectedRun(run)}>
                 <div className="flex justify-between items-center mb-2">
@@ -1437,7 +1500,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                 </div>
                 <div className="flex items-center gap-2">
                    <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-                      <div className="bg-gray-300 h-full w-0" /> {/* Simplify progress bar for list view */}
+                      <div className="bg-gray-300 h-full w-0" />
                    </div>
                    <span className="text-xs font-bold text-gray-500">{run.caseIds.length} Cases</span>
                 </div>
@@ -1473,11 +1536,14 @@ const TestRunner = ({ project }: { project: Project }) => {
            <div>
              <h2 className="font-bold text-lg">{selectedRun.title}</h2>
              <div className="flex items-center gap-2 text-xs text-gray-500">
-               <span>{activeCaseIndex + 1} / {runCases.length}</span>
-               <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden flex">
-                 <div className="h-full bg-green-500" style={{ width: `${(runResults.filter(r=>r.status==='PASS').length / runCases.length)*100}%` }}/>
-                 <div className="h-full bg-red-500" style={{ width: `${(runResults.filter(r=>r.status==='FAIL').length / runCases.length)*100}%` }}/>
-               </div>
+                <button onClick={() => setDashboardOpen(!isDashboardOpen)} className="flex items-center gap-1 hover:text-primary">
+                  <span>{activeCaseIndex + 1} / {runCases.length}</span>
+                  {isDashboardOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                </button>
+                <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                   <div className="h-full bg-green-500" style={{ width: `${(stats.pass / stats.total)*100}%` }}/>
+                   <div className="h-full bg-red-500" style={{ width: `${(stats.fail / stats.total)*100}%` }}/>
+                </div>
              </div>
            </div>
          </div>
@@ -1485,6 +1551,58 @@ const TestRunner = ({ project }: { project: Project }) => {
            <button onClick={() => setReportOpen(true)} className="px-3 py-1.5 border rounded hover:bg-gray-50 flex items-center gap-2 text-sm font-bold text-gray-600"><BarChart2 size={16}/> 리포트</button>
          </div>
       </div>
+
+      {/* Collapsible Dashboard (Option B) */}
+      {isDashboardOpen && (
+        <div className="bg-white border-b p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+           <div className="max-w-6xl mx-auto flex gap-8 items-center justify-center">
+              <div className="h-32 w-32 relative">
+                 <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'Pass', value: stats.pass, fill: '#22c55e' },
+                          { name: 'Fail', value: stats.fail, fill: '#ef4444' },
+                          { name: 'Block', value: stats.block, fill: '#1f2937' },
+                          { name: 'Untested', value: stats.untested, fill: '#e5e7eb' }
+                        ]}
+                        innerRadius={25}
+                        outerRadius={40}
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                         <Cell fill="#22c55e" />
+                         <Cell fill="#ef4444" />
+                         <Cell fill="#1f2937" />
+                         <Cell fill="#e5e7eb" />
+                      </Pie>
+                    </PieChart>
+                 </ResponsiveContainer>
+                 <div className="absolute inset-0 flex items-center justify-center font-bold text-gray-600 text-xs">
+                    {Math.round((stats.pass / stats.total) * 100) || 0}%
+                 </div>
+              </div>
+              <div className="grid grid-cols-4 gap-4">
+                 <div className="p-3 bg-green-50 rounded border border-green-100 w-24 text-center">
+                    <div className="text-xs font-bold text-green-700 uppercase">Pass</div>
+                    <div className="text-xl font-bold text-green-800">{stats.pass}</div>
+                 </div>
+                 <div className="p-3 bg-red-50 rounded border border-red-100 w-24 text-center">
+                    <div className="text-xs font-bold text-red-700 uppercase">Fail</div>
+                    <div className="text-xl font-bold text-red-800">{stats.fail}</div>
+                 </div>
+                 <div className="p-3 bg-gray-100 rounded border border-gray-200 w-24 text-center">
+                    <div className="text-xs font-bold text-gray-700 uppercase">Block</div>
+                    <div className="text-xl font-bold text-gray-800">{stats.block}</div>
+                 </div>
+                 <div className="p-3 bg-white rounded border border-gray-200 w-24 text-center">
+                    <div className="text-xs font-bold text-gray-400 uppercase">Untested</div>
+                    <div className="text-xl font-bold text-gray-500">{stats.untested}</div>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Case List Sidebar */}
@@ -1498,7 +1616,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                 onClick={() => { setActiveCaseIndex(idx); loadResultForCase(c, runResults); }}
                 className={`p-3 border-b cursor-pointer flex items-center gap-2 text-sm hover:bg-gray-50 ${activeCaseIndex === idx ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
               >
-                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'PASS' ? 'bg-green-500' : status === 'FAIL' ? 'bg-red-500' : 'bg-gray-300'}`} />
+                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'PASS' ? 'bg-green-500' : status === 'FAIL' ? 'bg-red-500' : status === 'BLOCK' ? 'bg-gray-800' : 'bg-gray-300'}`} />
                 <span className="truncate flex-1">{c.title}</span>
               </div>
             );
@@ -1516,40 +1634,56 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
                  <h1 className="text-2xl font-bold text-gray-900 mb-4">{activeCase.title}</h1>
                  {activeCase.precondition && (
-                   <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-200">
-                     <strong>Precondition:</strong> {activeCase.precondition}
+                   <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-200 whitespace-pre-wrap">
+                     <strong>Precondition:</strong> {formatTextWithNumbers(activeCase.precondition)}
                    </div>
                  )}
               </div>
 
               <div className="space-y-6 mb-8">
-                 {activeCase.steps.map((step, i) => (
+                 {activeCase.steps.map((step, i) => {
+                   const stepRes = stepResults.find(sr => sr.stepId === step.id)?.status || 'UNTESTED';
+                   return (
                    <div key={i} className="flex gap-4">
                       <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-500 flex-shrink-0">{i+1}</div>
                       <div className="flex-1 grid grid-cols-2 gap-4">
                          <div className="bg-gray-50 p-3 rounded border">
                            <div className="text-xs font-bold text-gray-400 mb-1">ACTION</div>
-                           <div className="text-sm">{step.step}</div>
+                           <div className="text-sm whitespace-pre-wrap">{formatTextWithNumbers(step.step)}</div>
                          </div>
                          <div className="bg-gray-50 p-3 rounded border">
                            <div className="text-xs font-bold text-gray-400 mb-1">EXPECTED</div>
-                           <div className="text-sm">{step.expected}</div>
+                           <div className="text-sm whitespace-pre-wrap">{formatTextWithNumbers(step.expected)}</div>
                          </div>
                       </div>
+                      <div className="flex flex-col gap-1 w-20 flex-shrink-0">
+                         <button 
+                            onClick={() => handleStepStatusChange(step.id, 'PASS')}
+                            className={`px-2 py-1 text-xs font-bold rounded border ${stepRes === 'PASS' ? 'bg-green-500 text-white border-green-600' : 'bg-white text-gray-400 hover:bg-green-50'}`}
+                         >PASS</button>
+                         <button 
+                            onClick={() => handleStepStatusChange(step.id, 'FAIL')}
+                            className={`px-2 py-1 text-xs font-bold rounded border ${stepRes === 'FAIL' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-gray-400 hover:bg-red-50'}`}
+                         >FAIL</button>
+                         <button 
+                            onClick={() => handleStepStatusChange(step.id, 'BLOCK')}
+                            className={`px-2 py-1 text-xs font-bold rounded border ${stepRes === 'BLOCK' ? 'bg-gray-800 text-white border-gray-900' : 'bg-white text-gray-400 hover:bg-gray-100'}`}
+                         >BLK</button>
+                      </div>
                    </div>
-                 ))}
+                 )})}
               </div>
 
               {/* Result Entry */}
               <div className={`border-2 rounded-xl p-6 transition-colors ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
                  <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><PlayCircle size={20}/> 결과 입력</h3>
                  
-                 {/* Status Buttons */}
+                 {/* Status Buttons - Immediate Save on Click */}
                  <div className="flex gap-2 mb-4">
                     {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
                       <button 
                         key={s}
-                        onClick={() => setStatus(s)}
+                        onClick={() => handleStatusChange(s)}
                         className={`flex-1 py-3 rounded font-bold transition-all ${status === s ? getStatusColor(s) + ' ring-2 ring-offset-1' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}
                       >
                         {s}
@@ -1563,27 +1697,50 @@ const TestRunner = ({ project }: { project: Project }) => {
                        <div className="bg-red-50 p-4 rounded border border-red-100 animate-in fade-in">
                           <label className="block text-sm font-bold text-red-800 mb-2 flex items-center gap-2"><Bug size={16}/> 결함 리포트 (Issue Tracker Link)</label>
                           <div className="flex gap-2">
-                             <input className="flex-1 border rounded p-2 text-sm" placeholder="이슈 키 (예: QA-123)" value={defectLabel} onChange={e => setDefectLabel(e.target.value)} />
-                             <input className="flex-[2] border rounded p-2 text-sm" placeholder="이슈 URL (예: https://jira...)" value={defectUrl} onChange={e => setDefectUrl(e.target.value)} />
+                             <input 
+                                className="flex-1 border rounded p-2 text-sm" 
+                                placeholder="이슈 키 (예: QA-123)" 
+                                value={defectLabel} 
+                                onChange={e => setDefectLabel(e.target.value)}
+                                onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                             />
+                             <input 
+                                className="flex-[2] border rounded p-2 text-sm" 
+                                placeholder="이슈 URL (예: https://jira...)" 
+                                value={defectUrl} 
+                                onChange={e => setDefectUrl(e.target.value)}
+                                onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                             />
                           </div>
                        </div>
                     )}
                     
                     <div>
                        <label className="block text-sm font-bold text-gray-700 mb-1">실제 결과 (Actual Result)</label>
-                       <textarea className="w-full border rounded p-2 h-20" placeholder="기대 결과와 다를 경우 상세히 기술하세요." value={actual} onChange={e => setActual(e.target.value)} />
+                       <textarea 
+                          className="w-full border rounded p-2 h-20" 
+                          placeholder="기대 결과와 다를 경우 상세히 기술하세요." 
+                          value={actual} 
+                          onChange={e => setActual(e.target.value)}
+                          onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                       />
                     </div>
                     <div>
                        <label className="block text-sm font-bold text-gray-700 mb-1">코멘트 (Optional)</label>
-                       <input className="w-full border rounded p-2" placeholder="비고 사항" value={comment} onChange={e => setComment(e.target.value)} />
+                       <input 
+                          className="w-full border rounded p-2" 
+                          placeholder="비고 사항" 
+                          value={comment} 
+                          onChange={e => setComment(e.target.value)}
+                          onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                       />
                     </div>
                  </div>
 
                  <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
-                    <button onClick={() => handleSaveResult(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded">저장만 하기</button>
-                    <button onClick={() => handleSaveResult(true)} className="px-6 py-2 bg-primary text-white font-bold rounded shadow hover:bg-blue-600 flex items-center gap-2">
-                       {status === 'PASS' ? <CheckCircle size={18}/> : <Save size={18}/>}
-                       {status === 'PASS' ? 'Pass & Next' : '저장 후 다음'}
+                    {/* Save button removed as per request. Autosave handles it. */}
+                    <button onClick={forcePassAndNext} className="px-6 py-2 bg-primary text-white font-bold rounded shadow hover:bg-blue-600 flex items-center gap-2">
+                       <CheckCircle size={18}/> Pass & Next
                     </button>
                  </div>
               </div>
@@ -1594,206 +1751,3 @@ const TestRunner = ({ project }: { project: Project }) => {
     </div>
   );
 };
-
-const AdminPanel = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  useEffect(() => { AuthService.getAllUsers().then(setUsers); }, []);
-
-  return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Users/> 사용자 관리</h2>
-      <div className="bg-white rounded shadow overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-4">이름</th>
-              <th className="p-4">이메일</th>
-              <th className="p-4">권한</th>
-              <th className="p-4">상태</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {users.map(u => (
-              <tr key={u.id} className="hover:bg-gray-50">
-                <td className="p-4 font-bold">{u.name}</td>
-                <td className="p-4 text-gray-600">{u.email}</td>
-                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{u.role}</span></td>
-                <td className="p-4"><span className="text-green-600 font-bold text-xs">Active</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-// --- Main App Component ---
-
-const App = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'PROJECTS'>('DASHBOARD');
-  const [isProjectModalOpen, setProjectModalOpen] = useState(false);
-  const [isProjectDropdownOpen, setProjectDropdownOpen] = useState(false);
-
-  useEffect(() => {
-    const u = AuthService.getCurrentUser();
-    setUser(u);
-    if (u) loadProjects();
-  }, []);
-
-  const loadProjects = async () => {
-    const list = await ProjectService.getAll();
-    setProjects(list);
-    if (list.length > 0 && !activeProject) {
-      setActiveProject(list[0]);
-    }
-  };
-
-  const login = async (email: string) => {
-    const u = await AuthService.login(email);
-    if (u) {
-      setUser(u);
-      loadProjects();
-    } else {
-      alert("로그인 실패");
-    }
-  };
-
-  const logout = () => {
-    AuthService.logout();
-    setUser(null);
-    setActiveProject(null);
-  };
-
-  if (!user) {
-    return (
-      <AuthContext.Provider value={{ user, login, logout }}>
-        <LoginScreen />
-      </AuthContext.Provider>
-    );
-  }
-
-  return (
-    <AuthContext.Provider value={{ user, login, logout }}>
-      <div className="flex h-screen bg-gray-100 text-gray-900 font-sans">
-        {/* Sidebar */}
-        <div className="w-64 bg-gray-900 text-white flex flex-col shadow-xl">
-          <div className="p-4 border-b border-gray-800">
-            <h1 className="text-xl font-bold tracking-tight text-blue-400 mb-4">QA Manager</h1>
-            
-            {/* Project Switcher */}
-            <div className="relative">
-              <button 
-                onClick={() => setProjectDropdownOpen(!isProjectDropdownOpen)} 
-                className={`w-full text-left bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition flex justify-between items-center ${isProjectDropdownOpen ? 'ring-1 ring-blue-500' : ''}`}
-              >
-                <div>
-                  <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Active Project</div>
-                  <div className="font-bold truncate">{activeProject?.title || 'No Project'}</div>
-                </div>
-                <ChevronDown size={16} className={`text-gray-400 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`}/>
-              </button>
-
-              {/* Backdrop for click-outside */}
-              {isProjectDropdownOpen && (
-                <div className="fixed inset-0 z-40 cursor-default" onClick={() => setProjectDropdownOpen(false)}></div>
-              )}
-
-              {/* Dropdown with Project List Button */}
-              {isProjectDropdownOpen && (
-                <div className="absolute top-full left-0 w-full bg-white text-gray-900 rounded shadow-xl mt-1 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
-                   <div className="px-2 py-1.5 border-b mb-1">
-                      <button onClick={() => { setView('PROJECTS'); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-gray-100 rounded text-sm font-bold flex items-center gap-2 text-gray-700">
-                          <LayoutGrid size={16}/> 전체 프로젝트 보기
-                      </button>
-                   </div>
-                   <div className="max-h-64 overflow-y-auto">
-                      {projects.map(p => (
-                        <div key={p.id} onClick={() => { setActiveProject(p); setView('DASHBOARD'); setProjectDropdownOpen(false); }} className="px-4 py-2 hover:bg-gray-100 cursor-pointer font-medium text-sm flex justify-between">
-                          {p.title}
-                          {activeProject?.id === p.id && <CheckCircle size={14} className="text-green-500"/>}
-                        </div>
-                      ))}
-                   </div>
-                   <div className="border-t mt-1 pt-1 px-2 pb-1">
-                      <button onClick={() => { setProjectModalOpen(true); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
-                        <Plus size={12}/> 새 프로젝트 생성
-                      </button>
-                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <nav className="flex-1 p-4 space-y-2">
-            <button onClick={() => setView('DASHBOARD')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'DASHBOARD' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              <LayoutDashboard size={18} /> 대시보드
-            </button>
-            <button onClick={() => setView('CASES')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'CASES' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              <FolderTree size={18} /> 테스트 케이스
-            </button>
-            <button onClick={() => setView('RUNS')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'RUNS' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              <PlayCircle size={18} /> 테스트 실행
-            </button>
-            {user.role === 'ADMIN' && (
-              <button onClick={() => setView('ADMIN')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${view === 'ADMIN' ? 'bg-primary text-white shadow-lg shadow-blue-900/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-                <Settings size={18} /> 관리자 설정
-              </button>
-            )}
-          </nav>
-
-          <div className="p-4 border-t border-gray-800">
-            <div className="flex items-center gap-3 mb-4 px-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center font-bold text-white text-xs">
-                {user.name.charAt(0)}
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <div className="text-sm font-bold text-white truncate">{user.name}</div>
-                <div className="text-xs text-gray-500 truncate">{user.email}</div>
-              </div>
-            </div>
-            <button onClick={logout} className="w-full flex items-center gap-2 text-gray-400 hover:text-white text-sm px-2 transition">
-              <LogOut size={16} /> 로그아웃
-            </button>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 overflow-hidden flex flex-col">
-          {view === 'PROJECTS' ? (
-             <ProjectList 
-               projects={projects} 
-               onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
-               onCreate={() => setProjectModalOpen(true)} 
-             />
-          ) : activeProject ? (
-            <>
-              {view === 'DASHBOARD' && <Dashboard project={activeProject} />}
-              {view === 'CASES' && <TestCaseManager project={activeProject} />}
-              {view === 'RUNS' && <TestRunner project={activeProject} />}
-              {view === 'ADMIN' && <AdminPanel />}
-            </>
-          ) : (
-             <ProjectList 
-               projects={projects} 
-               onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
-               onCreate={() => setProjectModalOpen(true)} 
-             />
-          )}
-        </div>
-        
-        <ProjectModal 
-          isOpen={isProjectModalOpen} 
-          onClose={() => setProjectModalOpen(false)} 
-          onSubmit={async (t, d, s) => { await ProjectService.create({title: t, description: d, status: s}); loadProjects(); }} 
-        />
-      </div>
-    </AuthContext.Provider>
-  );
-};
-
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
