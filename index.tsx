@@ -882,7 +882,7 @@ const Dashboard = ({ project }: { project: Project }) => {
                 cursor={{ fill: '#f3f4f6' }}
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
               />
-              <Legend />
+              <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
               <Bar name="성공(Passed)" dataKey="passed" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={30} />
               <Bar name="실패(Failed)" dataKey="failed" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={30} />
             </BarChart>
