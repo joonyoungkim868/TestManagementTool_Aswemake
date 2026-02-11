@@ -2171,10 +2171,27 @@ const App = () => {
   const loadProjects = async () => {
     const list = await ProjectService.getAll();
     setProjects(list);
+    
     if (list.length > 0 && !activeProject) {
-      setActiveProject(list[0]);
+      // 1. 로컬 스토리지에서 마지막으로 봤던 프로젝트 ID 조회
+      const lastId = localStorage.getItem('lastActiveProjectId');
+      
+      // 2. 해당 ID가 실제 목록에 존재하는지 확인 (삭제되었을 수도 있으므로)
+      const lastProject = list.find(p => p.id === lastId);
+      
+      if (lastProject) {
+        setActiveProject(lastProject); // 존재하면 해당 프로젝트 선택
+      } else {
+        setActiveProject(list[0]); // 없으면 가장 최신(첫 번째) 프로젝트 선택
+      }
     }
   };
+
+  useEffect(() => {
+    if (activeProject) {
+      localStorage.setItem('lastActiveProjectId', activeProject.id);
+    }
+  }, [activeProject]);
 
   const login = async (email: string) => {
     const u = await AuthService.login(email);
