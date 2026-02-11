@@ -874,15 +874,28 @@ const Dashboard = ({ project }: { project: Project }) => {
         </h3>
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
+            <BarChart 
+              data={chartData} 
+              margin={{ top: 10, right: 30, left: 0, bottom: 40 }} // [수정] 아래쪽 여백을 40px로 넉넉하게 줌
+            >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} />
+              <XAxis 
+                dataKey="name" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ dy: 10 }} // 날짜 위치 조정
+              />
               <YAxis axisLine={false} tickLine={false} />
               <Tooltip 
                 cursor={{ fill: '#f3f4f6' }}
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
               />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
+              <Legend 
+                verticalAlign="bottom" 
+                height={36} 
+                wrapperStyle={{ paddingTop: '20px' }} // 범례 위쪽에 간격 추가
+              />
+              
               <Bar name="성공(Passed)" dataKey="passed" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={30} />
               <Bar name="실패(Failed)" dataKey="failed" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={30} />
             </BarChart>
