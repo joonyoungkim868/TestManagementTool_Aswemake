@@ -8,7 +8,8 @@ import {
   Table, Link as LinkIcon, MinusCircle, HelpCircle, LayoutGrid, RotateCcw
 } from 'lucide-react';
 import { 
-  AuthService, ProjectService, TestCaseService, RunService, HistoryService 
+  AuthService, ProjectService, TestCaseService, RunService, HistoryService, 
+  DashboardService
 } from './storage';
 import { 
   User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus, Issue, ExecutionHistoryItem
@@ -814,30 +815,26 @@ const ReportModal = ({
 };
 
 const Dashboard = ({ project }: { project: Project }) => {
-  const [stats, setStats] = useState({ total: 0, automated: 0, runs: 0, passRate: 0 });
+  const [stats, setStats] = useState({ total: 0, activeRuns: 0, passRate: 0, defects: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
   const [isReportModalOpen, setReportModalOpen] = useState(false);
 
+  // [변경] 실제 데이터 로딩 로직
   useEffect(() => {
-    Promise.all([
-      TestCaseService.getCases(project.id),
-      RunService.getAll(project.id)
-    ]).then(([cases, runs]) => {
+    // 로딩 시 초기화
+    setStats({ total: 0, activeRuns: 0, passRate: 0, defects: 0 });
+    setChartData([]);
+
+    // 서비스 호출
+    DashboardService.getStats(project.id).then(data => {
       setStats({
-        total: cases.length,
-        automated: 0,
-        runs: runs.length,
-        passRate: 75 
+        total: data.totalCases,
+        activeRuns: data.activeRuns,
+        passRate: data.passRate,
+        defects: data.defectCount
       });
+      setChartData(data.chartData);
     });
-    
-    setChartData([
-      { name: '월', passed: 40, failed: 24 },
-      { name: '화', passed: 30, failed: 13 },
-      { name: '수', passed: 20, failed: 58 },
-      { name: '목', passed: 27, failed: 39 },
-      { name: '금', passed: 18, failed: 48 },
-    ]);
   }, [project]);
 
   return (
@@ -848,38 +845,55 @@ const Dashboard = ({ project }: { project: Project }) => {
            <BarChart2 size={18} /> 보고서 생성
          </button>
       </div>
+      
+      {/* KPI 카드 영역 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="text-gray-500 text-sm">총 테스트 케이스</h3>
-          <p className="text-3xl font-bold">{stats.total}</p>
+        <div className="bg-white p-4 rounded shadow border-l-4 border-blue-500">
+          <h3 className="text-gray-500 text-sm font-bold uppercase">총 테스트 케이스</h3>
+          <p className="text-3xl font-bold text-gray-800 mt-1">{stats.total}</p>
         </div>
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="text-gray-500 text-sm">진행 중인 테스트 실행</h3>
-          <p className="text-3xl font-bold">{stats.runs}</p>
+        <div className="bg-white p-4 rounded shadow border-l-4 border-indigo-500">
+          <h3 className="text-gray-500 text-sm font-bold uppercase">진행 중인 실행 (Active Runs)</h3>
+          <p className="text-3xl font-bold text-gray-800 mt-1">{stats.activeRuns}</p>
         </div>
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="text-gray-500 text-sm">평균 통과율</h3>
-          <p className="text-3xl font-bold text-green-600">{stats.passRate}%</p>
+        <div className="bg-white p-4 rounded shadow border-l-4 border-green-500">
+          <h3 className="text-gray-500 text-sm font-bold uppercase">평균 통과율</h3>
+          <p className="text-3xl font-bold text-green-600 mt-1">{stats.passRate}%</p>
         </div>
-        <div className="bg-white p-4 rounded shadow">
-          <h3 className="text-gray-500 text-sm">발견된 결함(Defects)</h3>
-          <p className="text-3xl font-bold text-red-500">12</p>
+        <div className="bg-white p-4 rounded shadow border-l-4 border-red-500">
+          {/* [변경] 문구 수정: 오픈된 결함 -> 발견된 결함 */}
+          <h3 className="text-gray-500 text-sm font-bold uppercase">발견된 결함 (Defects)</h3>
+          <p className="text-3xl font-bold text-red-500 mt-1">{stats.defects}</p>
         </div>
       </div>
+
+      {/* 차트 영역 */}
       <div className="bg-white p-6 rounded shadow h-80">
-        <h3 className="text-lg font-semibold mb-4">최근 활동 (지난 7일)</h3>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar name="성공(Passed)" dataKey="passed" fill="#22c55e" />
-            <Bar name="실패(Failed)" dataKey="failed" fill="#ef4444" />
-          </BarChart>
-        </ResponsiveContainer>
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <BarChart2 size={20} className="text-gray-400"/> 최근 7일간 활동 추이
+        </h3>
+        {chartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} />
+              <YAxis axisLine={false} tickLine={false} />
+              <Tooltip 
+                cursor={{ fill: '#f3f4f6' }}
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+              />
+              <Legend />
+              <Bar name="성공(Passed)" dataKey="passed" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={30} />
+              <Bar name="실패(Failed)" dataKey="failed" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={30} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-full flex items-center justify-center text-gray-400">
+            데이터를 불러오는 중이거나 활동 내역이 없습니다.
+          </div>
+        )}
       </div>
+      
       <ReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} project={project} />
     </div>
   );
