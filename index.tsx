@@ -298,7 +298,7 @@ const LoginScreen = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 relative z-50">
       <div className="bg-white p-8 rounded-lg shadow-md w-96">
-        <h1 className="text-2xl font-bold mb-6 text-center text-primary">QA 관리 도구</h1>
+        <h1 className="text-2xl font-bold mb-6 text-center text-primary">TestJail</h1>
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">이메일</label>
@@ -309,11 +309,6 @@ const LoginScreen = () => {
               onChange={e => setEmail(e.target.value)} 
               placeholder="admin@company.com"
             />
-          </div>
-          <div className="text-xs text-gray-500">
-            <p>테스트 계정: admin@company.com (관리자)</p>
-            <p>테스트 계정: jane@company.com (내부 QA)</p>
-            <p>테스트 계정: ext@vendor.com (외부 QA)</p>
           </div>
           <button disabled={loading} type="submit" className="w-full bg-primary text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
             {loading ? '로그인 중...' : '로그인'}
