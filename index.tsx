@@ -862,7 +862,7 @@ const Dashboard = ({ project }: { project: Project }) => {
           <p className="text-3xl font-bold text-green-600">{stats.passRate}%</p>
         </div>
         <div className="bg-white p-4 rounded shadow">
-          <h3 className="text-gray-500 text-sm">오픈된 결함(Defects)</h3>
+          <h3 className="text-gray-500 text-sm">발견된 결함(Defects)</h3>
           <p className="text-3xl font-bold text-red-500">12</p>
         </div>
       </div>
