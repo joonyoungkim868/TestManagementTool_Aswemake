@@ -1232,14 +1232,19 @@ const TestCaseManager = ({ project }: { project: Project }) => {
   const [caseHistory, setCaseHistory] = useState<HistoryLog[]>([]);
 
   const [editForm, setEditForm] = useState<Partial<TestCase>>({});
+  
+  // [추가] 로딩 상태
+  const [loading, setLoading] = useState(true);
 
   const loadData = () => {
+    setLoading(true); // 로딩 시작
     Promise.all([
       TestCaseService.getSections(project.id),
       TestCaseService.getCases(project.id)
     ]).then(([s, c]) => {
       setSections(s);
       setCases(c);
+      setLoading(false); // 로딩 끝
     });
   };
 
@@ -1279,57 +1284,35 @@ const TestCaseManager = ({ project }: { project: Project }) => {
     const saved = await TestCaseService.saveCase(editForm, user);
     setIsEditing(false);
     loadData();
-    setSelectedCase(saved); // Load the saved case
+    setSelectedCase(saved); 
   };
   
-  // [3-2, 3-3] 테스트 케이스 삭제: 컨펌 팝업 없이 즉시 삭제
+  // [3-2, 3-3] 테스트 케이스 삭제: 컨펌 팝업 없이 즉시 삭제 (이전 턴 반영)
   const handleDeleteCase = async (caseId: string, event?: React.MouseEvent) => {
-    // 이벤트 전파 방지 (리스트 클릭 방지)
-    event?.stopPropagation(); 
-    
-    // 별도 컨펌 없이 즉시 삭제 API 호출
+    event?.stopPropagation();
     await TestCaseService.deleteCase(caseId);
-    
-    // 데이터 재로딩 및 UI 갱신
     loadData();
-    
-    // 만약 현재 보고 있던 케이스를 삭제했다면 상세 화면 닫기
     if (selectedCase?.id === caseId) {
       setSelectedCase(null);
       setIsEditing(false);
     }
   };
 
-  // [3-1] 섹션(폴더) 삭제: 하위 케이스 유무에 따른 조건부 처리
+  // [3-1] 섹션 삭제: 하위 케이스 존재 시 컨펌 (이전 턴 반영)
   const handleDeleteSection = async (sectionId: string, event: React.MouseEvent) => {
-    // 이벤트 전파 및 기본 동작 방지 (필수)
     event.stopPropagation();
     event.preventDefault(); 
 
-    // 현재 섹션에 포함된 하위 케이스 개수 계산
     const sectionCases = cases.filter(c => c.sectionId === sectionId);
     const count = sectionCases.length;
     
-    // 하위 케이스가 1개 이상 존재하는 경우에만 컨펌 팝업 띄움
     if (count > 0) {
-      // window.confirm을 명시적으로 사용하여 팝업 호출 보장
       const isConfirmed = window.confirm(`해당 폴더 삭제 시, 하위 ${count}개의 테스트케이스가 삭제됩니다. 삭제하시겠습니까?`);
-      
-      // 사용자가 '취소'를 누르면 함수 종료 (삭제 진행 안 함)
-      if (!isConfirmed) {
-        return; 
-      }
+      if (!isConfirmed) return; 
     }
     
-    // [실행 조건] 
-    // 1. 하위 케이스가 없는 경우 (count === 0) -> 즉시 실행
-    // 2. 하위 케이스가 있고 사용자가 '확인'을 누른 경우 -> 실행
     await TestCaseService.deleteSection(sectionId);
-    
-    // UI 갱신
     loadData();
-    
-    // 삭제된 섹션이 선택되어 있었다면 선택 해제
     if (selectedSectionId === sectionId) {
       setSelectedSectionId(null);
     }
@@ -1339,38 +1322,48 @@ const TestCaseManager = ({ project }: { project: Project }) => {
 
   return (
     <div className="flex h-full bg-white rounded shadow overflow-hidden">
+      {/* 1. 왼쪽 섹션 패널 */}
       <div className="w-64 bg-gray-50 border-r flex flex-col">
         <div className="p-3 border-b flex justify-between items-center">
           <span className="font-bold text-gray-700 text-sm">섹션 (Folders)</span>
           <button onClick={() => setSectionModalOpen(true)} className="p-1 hover:bg-gray-200 rounded"><Plus size={16}/></button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          <div 
-            className={`p-2 text-sm rounded cursor-pointer flex items-center gap-2 ${selectedSectionId === null ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
-            onClick={() => setSelectedSectionId(null)}
-          >
-            <Folder size={16}/> 모든 케이스
+        
+        {/* [수정] 로딩 상태에 따른 조건부 렌더링 */}
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="animate-spin text-gray-400" />
           </div>
-          {sections.map(s => (
+        ) : (
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
             <div 
-              key={s.id}
-              className={`p-2 text-sm rounded cursor-pointer flex items-center justify-between group ${selectedSectionId === s.id ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
-              onClick={() => setSelectedSectionId(s.id)}
+              className={`p-2 text-sm rounded cursor-pointer flex items-center gap-2 ${selectedSectionId === null ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
+              onClick={() => setSelectedSectionId(null)}
             >
-              <div className="flex items-center gap-2 overflow-hidden">
-                 <FolderTree size={16} className="flex-shrink-0"/> <span className="truncate">{s.title}</span>
-              </div>
-              <button 
-                onClick={(e) => handleDeleteSection(s.id, e)}
-                className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 size={14}/>
-              </button>
+              <Folder size={16}/> 모든 케이스
             </div>
-          ))}
-        </div>
+            {sections.map(s => (
+              <div 
+                key={s.id}
+                className={`p-2 text-sm rounded cursor-pointer flex items-center justify-between group ${selectedSectionId === s.id ? 'bg-blue-100 text-primary font-bold' : 'hover:bg-gray-100'}`}
+                onClick={() => setSelectedSectionId(s.id)}
+              >
+                <div className="flex items-center gap-2 overflow-hidden">
+                   <FolderTree size={16} className="flex-shrink-0"/> <span className="truncate">{s.title}</span>
+                </div>
+                <button 
+                  onClick={(e) => handleDeleteSection(s.id, e)}
+                  className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={14}/>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
+      {/* 2. 중간 케이스 리스트 패널 */}
       <div className="w-80 border-r flex flex-col">
         <div className="p-3 border-b flex justify-between items-center bg-white">
            <span className="font-bold text-sm text-gray-700">{filteredCases.length} 케이스</span>
@@ -1379,28 +1372,36 @@ const TestCaseManager = ({ project }: { project: Project }) => {
              <button onClick={handleCreateCase} className="p-1 hover:bg-blue-50 text-primary rounded"><Plus size={18}/></button>
            </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {filteredCases.map(c => (
-            <div 
-              key={c.id} 
-              className={`p-3 border-b cursor-pointer hover:bg-gray-50 group ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
-              onClick={() => { setSelectedCase(c); setIsEditing(false); }}
-            >
-              <div className="text-xs text-gray-500 mb-1 flex justify-between items-start">
-                <div className="flex gap-2 items-center">
-                  <span>{c.id.substr(0,4)}</span>
-                  <span className={`px-1 rounded text-[10px] ${c.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>{c.priority}</span>
+        
+        {/* [수정] 로딩 상태에 따른 조건부 렌더링 */}
+        {loading ? (
+          <LoadingSpinner />
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            {filteredCases.map(c => (
+              <div 
+                key={c.id} 
+                className={`p-3 border-b cursor-pointer hover:bg-gray-50 group ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
+                onClick={() => { setSelectedCase(c); setIsEditing(false); }}
+              >
+                <div className="text-xs text-gray-500 mb-1 flex justify-between items-start">
+                  <div className="flex gap-2 items-center">
+                    <span>{c.id.substr(0,4)}</span>
+                    <span className={`px-1 rounded text-[10px] ${c.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>{c.priority}</span>
+                  </div>
+                  <button onClick={(e) => handleDeleteCase(c.id, e)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                     <Trash2 size={12}/>
+                  </button>
                 </div>
-                <button onClick={(e) => handleDeleteCase(c.id, e)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <Trash2 size={12}/>
-                </button>
+                <div className="font-medium text-sm line-clamp-2">{c.title}</div>
               </div>
-              <div className="font-medium text-sm line-clamp-2">{c.title}</div>
-            </div>
-          ))}
-        </div>
+            ))}
+            {filteredCases.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">케이스가 없습니다.</div>}
+          </div>
+        )}
       </div>
 
+      {/* 3. 오른쪽 상세 패널 (기존 유지) */}
       <div className="flex-1 flex flex-col bg-white">
         {isEditing ? (
           <div className="flex-1 flex flex-col p-6 overflow-y-auto">
@@ -1491,7 +1492,6 @@ const TestCaseManager = ({ project }: { project: Project }) => {
                   </div>
                   <h2 className="text-2xl font-bold text-gray-900">{selectedCase.title}</h2>
                   
-                  {/* [NEW] Metadata Header */}
                   <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                     <div className="flex items-center gap-1">
                       <Clock size={12}/> Created by {getUserName(selectedCase.authorId)} on {new Date(selectedCase.createdAt).toLocaleString()}
