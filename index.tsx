@@ -1608,11 +1608,14 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [defectUrl, setDefectUrl] = useState('');
   const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
   
-  // [NEW] Execution History State
   const [historyExpanded, setHistoryExpanded] = useState(true);
   const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
+  
+  // [추가] 로딩 상태
+  const [loading, setLoading] = useState(true);
 
   const loadRuns = async () => {
+    setLoading(true); // 로딩 시작
     try {
       const loadedRuns = await RunService.getAll(project.id);
       setRuns(loadedRuns);
@@ -1624,6 +1627,8 @@ const TestRunner = ({ project }: { project: Project }) => {
       setRunStats(stats);
     } catch (e) {
       console.error(e);
+    } finally {
+      setLoading(false); // 로딩 끝
     }
   };
 
@@ -1634,6 +1639,7 @@ const TestRunner = ({ project }: { project: Project }) => {
 
   useEffect(() => {
     if (selectedRun) {
+      // 상세 화면 진입 시 로딩 느낌을 주기 위해 데이터 초기화 없이 비동기 요청 시작
       Promise.all([
         TestCaseService.getCases(project.id),
         RunService.getResults(selectedRun.id),
@@ -1709,7 +1715,6 @@ const TestRunner = ({ project }: { project: Project }) => {
 
     await RunService.saveResult(payload);
     
-    // Optimistic update
     const updatedRes = { ...payload, id: 'temp' } as TestResult;
     setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), updatedRes]);
     
@@ -1717,7 +1722,6 @@ const TestRunner = ({ project }: { project: Project }) => {
     const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), updatedRes];
     setRunStats(prev => ({ ...prev, [selectedRun.id]: newStats }));
     
-    // Refresh to get latest history
     RunService.getResults(selectedRun.id).then(results => {
        const fresh = results.find(r => r.caseId === currentCase.id);
        if (fresh) setCurrentResultHistory(fresh.history || []);
@@ -1770,7 +1774,6 @@ const TestRunner = ({ project }: { project: Project }) => {
 
   const stats = getRunStats();
 
-  // Combine current state with history to show a full timeline including "now"
   const fullHistoryTimeline: (ExecutionHistoryItem & { isCurrent?: boolean })[] = status === 'UNTESTED' ? [] : [
     {
       status,
@@ -1785,7 +1788,10 @@ const TestRunner = ({ project }: { project: Project }) => {
     ...currentResultHistory.map(h => ({ ...h, isCurrent: false }))
   ];
 
+  // [수정] 실행 목록 화면 (selectedRun === null)
   if (!selectedRun) {
+    if (loading) return <LoadingSpinner />; // [추가] 로딩 중 스피너 표시
+
     return (
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
@@ -1826,8 +1832,11 @@ const TestRunner = ({ project }: { project: Project }) => {
     );
   }
 
+  // [수정] 실행 상세 화면에서 데이터 로딩 중 처리 (runCases가 비었으면 로딩중으로 간주)
+  if (runCases.length === 0) return <LoadingSpinner />;
+
   const activeCase = runCases[activeCaseIndex];
-  if (!activeCase) return <div>Loading...</div>;
+  if (!activeCase) return <div>Data Error</div>;
 
   const getStatusColor = (s: TestStatus) => {
     switch(s) {
@@ -2048,7 +2057,6 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
               </div>
               
-              {/* [NEW] Execution History Timeline */}
               <div className="mt-8 border-t pt-4">
                 <button 
                   onClick={() => setHistoryExpanded(!historyExpanded)}
@@ -2093,14 +2101,13 @@ const TestRunner = ({ project }: { project: Project }) => {
                                </div>
                              )}
                              
-                             {/* [NEW] Step Results in History */}
                              {h.stepResults && h.stepResults.length > 0 && (
                                <div className="mt-2">
                                   <div className="text-xs font-bold text-gray-400 mb-1">STEP DETAILS</div>
                                   <div className="grid grid-cols-1 gap-1">
                                     {activeCase.steps.map((step, sIdx) => {
                                        const sRes = h.stepResults?.find(sr => sr.stepId === step.id);
-                                       if (!sRes) return null; // Don't show untested steps to save space
+                                       if (!sRes) return null;
                                        return (
                                          <div key={step.id} className="flex items-center gap-2 text-xs">
                                             <span className={`w-14 font-mono font-bold text-center rounded px-1 ${
