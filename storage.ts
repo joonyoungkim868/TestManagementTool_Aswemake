@@ -361,10 +361,11 @@ export const RunService = {
 
   saveResult: async (data: Partial<TestResult>) => {
     if (USE_SUPABASE) {
-      // Supabase implementation simplified for this example
-      const { data: existing } = await supabase.from('testResults').select('*').eq('runId', data.runId).eq('caseId', data.caseId).single();
-      
-      let history: ExecutionHistoryItem[] = existing?.history || [];
+    // Supabase implementation simplified for this example
+    // ▼ 수정: maybeSingle()은 데이터가 없으면 에러 대신 null을 반환함 (406 에러 해결)
+    const { data: existing } = await supabase.from('testResults').select('*').eq('runId', data.runId).eq('caseId', data.caseId).maybeSingle();
+    
+    let history: ExecutionHistoryItem[] = existing?.history || [];
       if (existing && existing.status !== 'UNTESTED') {
          history.unshift({
             status: existing.status,
