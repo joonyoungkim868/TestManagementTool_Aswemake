@@ -868,7 +868,7 @@ const Dashboard = ({ project }: { project: Project }) => {
       </div>
 
       {/* 차트 영역 */}
-      <div className="bg-white p-6 rounded shadow h-80">
+      <div className="bg-white p-6 rounded shadow h-96">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <BarChart2 size={20} className="text-gray-400"/> 최근 7일간 활동 추이
         </h3>
