@@ -492,3 +492,104 @@ export const HistoryService = {
     }
   }
 };
+
+export const DashboardService = {
+  getStats: async (projectId: string) => {
+    let totalCases = 0;
+    let activeRuns = 0;
+    let passRate = 0;
+    let defectCount = 0;
+    let chartData: { name: string, passed: number, failed: number }[] = [];
+
+    // [Helper] 날짜 포맷 (YYYY-MM-DD)
+    const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
+    if (USE_SUPABASE) {
+      // 1. 총 테스트 케이스 수
+      const { count } = await supabase
+        .from('testCases')
+        .select('*', { count: 'exact', head: true })
+        .eq('projectId', projectId);
+      totalCases = count || 0;
+
+      // 2. 진행 중인 테스트 실행 (Active Runs)
+      const { data: runs } = await supabase
+        .from('testRuns')
+        .select('id, status')
+        .eq('projectId', projectId);
+      
+      const runList = runs || [];
+      activeRuns = runList.filter(r => r.status === 'OPEN').length;
+
+      // 3. 결과 집계 (Pass Rate, Defects, Chart)
+      // 해당 프로젝트의 모든 Run ID 추출
+      const runIds = runList.map(r => r.id);
+      let allResults: TestResult[] = [];
+
+      if (runIds.length > 0) {
+        // Run ID들에 속한 모든 결과 조회
+        const { data: results } = await supabase
+          .from('testResults')
+          .select('*')
+          .in('runId', runIds);
+        allResults = results || [];
+      }
+
+      // 3-1. 평균 통과율 & 결함 수 계산
+      const passedCount = allResults.filter(r => r.status === 'PASS').length;
+      const totalTested = allResults.length;
+      passRate = totalTested > 0 ? Math.round((passedCount / totalTested) * 100) : 0;
+
+      defectCount = allResults.reduce((sum, r) => sum + (r.issues?.length || 0), 0);
+
+      // 3-2. 차트 데이터 (최근 7일)
+      const days = [...Array(7)].map((_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return formatDate(d);
+      });
+
+      chartData = days.map(day => {
+        // UTC 기준 날짜 매칭 (간이 구현)
+        const daily = allResults.filter(r => r.timestamp && r.timestamp.startsWith(day));
+        return {
+          name: day.slice(5), // MM-DD 형식
+          passed: daily.filter(r => r.status === 'PASS').length,
+          failed: daily.filter(r => r.status === 'FAIL').length
+        };
+      });
+
+    } else {
+      // [LocalStorage 모드]
+      const cases = getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.projectId === projectId);
+      totalCases = cases.length;
+
+      const runs = getLocal<TestRun>(STORAGE_KEYS.RUNS).filter(r => r.projectId === projectId);
+      activeRuns = runs.filter(r => r.status === 'OPEN').length;
+
+      const runIds = runs.map(r => r.id);
+      const allResults = getLocal<TestResult>(STORAGE_KEYS.RESULTS).filter(r => runIds.includes(r.runId));
+
+      const passedCount = allResults.filter(r => r.status === 'PASS').length;
+      passRate = allResults.length > 0 ? Math.round((passedCount / allResults.length) * 100) : 0;
+      defectCount = allResults.reduce((sum, r) => sum + (r.issues?.length || 0), 0);
+
+      const days = [...Array(7)].map((_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return formatDate(d);
+      });
+
+      chartData = days.map(day => {
+        const daily = allResults.filter(r => r.timestamp && r.timestamp.startsWith(day));
+        return {
+          name: day.slice(5),
+          passed: daily.filter(r => r.status === 'PASS').length,
+          failed: daily.filter(r => r.status === 'FAIL').length
+        };
+      });
+    }
+
+    return { totalCases, activeRuns, passRate, defectCount, chartData };
+  }
+};
