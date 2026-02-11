@@ -407,7 +407,7 @@ const ProjectModal = ({
               className="w-full border rounded p-2"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="예: 2024 상반기 앱 개편"
+              placeholder="예: TF2000 3월 정기배포"
               autoFocus
             />
           </div>
