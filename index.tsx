@@ -842,14 +842,13 @@ const Dashboard = ({ project }: { project: Project }) => {
   const [stats, setStats] = useState({ total: 0, activeRuns: 0, passRate: 0, defects: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
   const [isReportModalOpen, setReportModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true); // [추가] 로딩 상태
 
-  // [변경] 실제 데이터 로딩 로직
   useEffect(() => {
-    // 로딩 시 초기화
+    setLoading(true); // 로딩 시작
     setStats({ total: 0, activeRuns: 0, passRate: 0, defects: 0 });
     setChartData([]);
 
-    // 서비스 호출
     DashboardService.getStats(project.id).then(data => {
       setStats({
         total: data.totalCases,
@@ -858,8 +857,12 @@ const Dashboard = ({ project }: { project: Project }) => {
         defects: data.defectCount
       });
       setChartData(data.chartData);
+      setLoading(false); // 로딩 완료
     });
   }, [project]);
+
+  // [추가] 로딩 중이면 스켈레톤 리턴
+  if (loading) return <DashboardSkeleton />;
 
   return (
     <div className="p-6 space-y-6">
@@ -885,7 +888,6 @@ const Dashboard = ({ project }: { project: Project }) => {
           <p className="text-3xl font-bold text-green-600 mt-1">{stats.passRate}%</p>
         </div>
         <div className="bg-white p-4 rounded shadow border-l-4 border-red-500">
-          {/* [변경] 문구 수정: 오픈된 결함 -> 발견된 결함 */}
           <h3 className="text-gray-500 text-sm font-bold uppercase">발견된 결함 (Defects)</h3>
           <p className="text-3xl font-bold text-red-500 mt-1">{stats.defects}</p>
         </div>
@@ -900,14 +902,14 @@ const Dashboard = ({ project }: { project: Project }) => {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart 
               data={chartData} 
-              margin={{ top: 10, right: 30, left: 0, bottom: 40 }} // [수정] 아래쪽 여백을 40px로 넉넉하게 줌
+              margin={{ top: 10, right: 30, left: 0, bottom: 40 }} // [유지] 아래쪽 여백 넉넉하게
             >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis 
                 dataKey="name" 
                 axisLine={false} 
                 tickLine={false} 
-                tick={{ dy: 10 }} // 날짜 위치 조정
+                tick={{ dy: 10 }} // [유지] 날짜 위치 조정
               />
               <YAxis axisLine={false} tickLine={false} />
               <Tooltip 
@@ -917,7 +919,7 @@ const Dashboard = ({ project }: { project: Project }) => {
               <Legend 
                 verticalAlign="bottom" 
                 height={36} 
-                wrapperStyle={{ paddingTop: '20px' }} // 범례 위쪽에 간격 추가
+                wrapperStyle={{ paddingTop: '20px' }} // [유지] 범례 위쪽 간격
               />
               
               <Bar name="성공(Passed)" dataKey="passed" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={30} />
