@@ -205,7 +205,11 @@ export class TestCaseService {
 
   static async getCases(projectId: string): Promise<TestCase[]> {
     if (USE_SUPABASE) {
-      const { data } = await supabase.from('testCases').select('*').eq('projectId', projectId);
+      const { data } = await supabase
+        .from('testCases')
+        .select('*')
+        .eq('projectId', projectId)
+        .order('createdAt', { ascending: true }); 
       return data || [];
     }
     return getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.projectId === projectId);
