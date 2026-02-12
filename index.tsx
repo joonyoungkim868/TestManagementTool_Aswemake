@@ -310,7 +310,7 @@ const HistoryModal = ({ isOpen, onClose, logs }: { isOpen: boolean, onClose: () 
 
 const LoginScreen = () => {
   const { login } = useContext(AuthContext);
-  const [email, setEmail] = useState('admin@company.com');
+  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
