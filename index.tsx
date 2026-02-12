@@ -2328,7 +2328,7 @@ const App = () => {
       loadProjects();
       AuthService.getAllUsers().then(setUsers);
     } else {
-      alert("로그인 실패");
+      alert("로그인에 실패했습니다. 이메일을 확인해주세요.");
     }
   };
 
