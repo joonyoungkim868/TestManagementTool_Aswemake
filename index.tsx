@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { 
   AuthService, ProjectService, TestCaseService, RunService, HistoryService, 
-  DashboardService
+  DashboardService,
 } from './storage';
 import { 
   User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, TestStep, Role, TestStatus, ProjectStatus, Issue, ExecutionHistoryItem
@@ -1640,6 +1640,7 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [isDashboardOpen, setDashboardOpen] = useState(true);
   const [runStats, setRunStats] = useState<Record<string, TestResult[]>>({});
 
+  // 테스트 실행 상태 (Form State)
   const [status, setStatus] = useState<TestStatus>('UNTESTED');
   const [actual, setActual] = useState('');
   const [comment, setComment] = useState('');
@@ -1653,19 +1654,21 @@ const TestRunner = ({ project }: { project: Project }) => {
   // [추가] 로딩 상태
   const [loading, setLoading] = useState(true);
 
+  // 실행 목록 불러오기
   const loadRuns = async () => {
     setLoading(true); // 로딩 시작
     try {
       const loadedRuns = await RunService.getAll(project.id);
       setRuns(loadedRuns);
 
+      // 리스트 화면의 미니 통계를 위해 각 실행별 결과 미리 로드
       const stats: Record<string, TestResult[]> = {};
       await Promise.all(loadedRuns.map(async (r) => {
          stats[r.id] = await RunService.getResults(r.id);
       }));
       setRunStats(stats);
     } catch (e) {
-      console.error(e);
+      console.error("Failed to load runs:", e);
     } finally {
       setLoading(false); // 로딩 끝
     }
@@ -1676,15 +1679,17 @@ const TestRunner = ({ project }: { project: Project }) => {
     setSelectedRun(null);
   }, [project]);
 
+  // 실행 상세 진입 시 데이터 로드
   useEffect(() => {
     if (selectedRun) {
-      // 상세 화면 진입 시 로딩 느낌을 주기 위해 데이터 초기화 없이 비동기 요청 시작
+      // 로딩 느낌을 주기 위해 데이터 초기화 없이 비동기 요청 시작
       Promise.all([
         TestCaseService.getCases(project.id),
         RunService.getResults(selectedRun.id),
         TestCaseService.getSections(project.id)
       ]).then(([allCases, results, sections]) => {
         const sectionMap = new Map(sections.map(s => [s.id, s.title]));
+        // 현재 실행 계획에 포함된 케이스만 필터링
         const casesInRun = allCases
           .filter(c => selectedRun.caseIds.includes(c.id))
           .map(c => ({ ...c, sectionTitle: sectionMap.get(c.sectionId) }));
@@ -1696,6 +1701,15 @@ const TestRunner = ({ project }: { project: Project }) => {
       });
     }
   }, [selectedRun]);
+
+  // [추가] 실행 삭제 핸들러
+  const handleDeleteRun = async (runId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // 부모 클릭(상세 진입) 방지
+    if (window.confirm("이 테스트 실행(Test Run)을 삭제하시겠습니까?\n포함된 모든 결과 데이터가 영구 삭제됩니다.")) {
+      await RunService.delete(runId);
+      loadRuns(); // 목록 갱신
+    }
+  };
 
   const loadResultForCase = (c: TestCase | undefined, results: TestResult[]) => {
     if (!c) return;
@@ -1754,6 +1768,7 @@ const TestRunner = ({ project }: { project: Project }) => {
 
     await RunService.saveResult(payload);
     
+    // 로컬 상태 즉시 반영 (UX 향상)
     const updatedRes = { ...payload, id: 'temp' } as TestResult;
     setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), updatedRes]);
     
@@ -1761,6 +1776,7 @@ const TestRunner = ({ project }: { project: Project }) => {
     const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), updatedRes];
     setRunStats(prev => ({ ...prev, [selectedRun.id]: newStats }));
     
+    // 히스토리 갱신
     RunService.getResults(selectedRun.id).then(results => {
        const fresh = results.find(r => r.caseId === currentCase.id);
        if (fresh) setCurrentResultHistory(fresh.history || []);
@@ -1772,6 +1788,7 @@ const TestRunner = ({ project }: { project: Project }) => {
     newStepResults.push({ stepId, status: newStepStatus });
     setStepResults(newStepResults);
 
+    // 스텝 상태에 따라 전체 상태 자동 계산 (실패 하나라도 있으면 전체 실패)
     let calculatedStatus: TestStatus = 'PASS';
     const hasFail = newStepResults.some(s => s.status === 'FAIL');
     const hasBlock = newStepResults.some(s => s.status === 'BLOCK');
@@ -1827,9 +1844,9 @@ const TestRunner = ({ project }: { project: Project }) => {
     ...currentResultHistory.map(h => ({ ...h, isCurrent: false }))
   ];
 
-  // [수정] 실행 목록 화면 (selectedRun === null)
+  // 1. 실행 목록 화면 (selectedRun === null)
   if (!selectedRun) {
-    if (loading) return <LoadingSpinner />; // [추가] 로딩 중 스피너 표시
+    if (loading) return <LoadingSpinner />; // 로딩 중 스피너 표시
 
     return (
       <div className="p-6">
@@ -1852,8 +1869,20 @@ const TestRunner = ({ project }: { project: Project }) => {
               <div key={run.id} className="bg-white p-4 rounded shadow border hover:border-primary cursor-pointer group" onClick={() => setSelectedRun(run)}>
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-bold text-lg text-gray-800 group-hover:text-primary">{run.title}</h3>
-                  <span className="text-xs text-gray-500">{new Date(run.createdAt).toLocaleDateString()}</span>
+                  
+                  {/* [수정] 날짜 및 삭제 버튼 그룹 */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500">{new Date(run.createdAt).toLocaleDateString()}</span>
+                    <button
+                      onClick={(e) => handleDeleteRun(run.id, e)}
+                      className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded transition opacity-0 group-hover:opacity-100"
+                      title="실행 계획 삭제"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
+                
                 <div className="flex items-center gap-2">
                    <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden flex">
                       <div className="bg-green-500 h-full" style={{ width: `${passWidth}%` }} />
@@ -1871,7 +1900,8 @@ const TestRunner = ({ project }: { project: Project }) => {
     );
   }
 
-  // [수정] 실행 상세 화면에서 데이터 로딩 중 처리 (runCases가 비었으면 로딩중으로 간주)
+  // 2. 실행 상세 화면 (selectedRun !== null)
+  // 데이터 로딩 중 처리 (runCases가 비었으면 로딩중으로 간주)
   if (runCases.length === 0) return <LoadingSpinner />;
 
   const activeCase = runCases[activeCaseIndex];
@@ -1889,6 +1919,7 @@ const TestRunner = ({ project }: { project: Project }) => {
 
   return (
     <div className="flex flex-col h-full bg-gray-100">
+      {/* 상세 헤더 */}
       <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm z-10">
          <div className="flex items-center gap-4">
            <button onClick={() => setSelectedRun(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft/></button>
@@ -1911,6 +1942,7 @@ const TestRunner = ({ project }: { project: Project }) => {
          </div>
       </div>
 
+      {/* 대시보드 (접기/펼치기 가능) */}
       {isDashboardOpen && (
         <div className="bg-white border-b p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
            <div className="max-w-6xl mx-auto flex gap-8 items-center justify-center">
@@ -1963,6 +1995,7 @@ const TestRunner = ({ project }: { project: Project }) => {
       )}
 
       <div className="flex-1 flex overflow-hidden">
+        {/* 왼쪽: 케이스 목록 */}
         <div className="w-72 bg-white border-r overflow-y-auto">
           {runCases.map((c, idx) => {
             const res = runResults.find(r => r.caseId === c.id);
@@ -1980,8 +2013,10 @@ const TestRunner = ({ project }: { project: Project }) => {
           })}
         </div>
 
+        {/* 오른쪽: 상세 및 실행 */}
         <div className="flex-1 flex overflow-hidden">
            <div className="flex-1 overflow-y-auto p-8 bg-white max-w-4xl mx-auto shadow-sm my-4 rounded-lg">
+              {/* 케이스 정보 헤더 */}
               <div className="mb-6 pb-4 border-b">
                  <div className="flex gap-2 mb-2">
                     <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-bold text-gray-600">{activeCase.sectionTitle || 'General'}</span>
@@ -1995,6 +2030,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                  )}
               </div>
 
+              {/* 스텝 실행 영역 */}
               <div className="space-y-6 mb-8">
                  {activeCase.steps.map((step, i) => {
                    const stepRes = stepResults.find(sr => sr.stepId === step.id)?.status || 'UNTESTED';
@@ -2029,6 +2065,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                  )})}
               </div>
 
+              {/* 최종 결과 입력 카드 */}
               <div className={`border-2 rounded-xl p-6 transition-colors ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
                  <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><PlayCircle size={20}/> 결과 입력</h3>
                  
@@ -2045,6 +2082,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
 
                  <div className="space-y-4">
+                    {/* FAIL일 때만 보이는 결함 리포트 입력창 */}
                     {status === 'FAIL' && (
                        <div className="bg-red-50 p-4 rounded border border-red-100 animate-in fade-in">
                           <label className="block text-sm font-bold text-red-800 mb-2 flex items-center gap-2"><Bug size={16}/> 결함 리포트 (Issue Tracker Link)</label>
@@ -2096,6 +2134,7 @@ const TestRunner = ({ project }: { project: Project }) => {
                  </div>
               </div>
               
+              {/* 실행 이력 (Timeline) */}
               <div className="mt-8 border-t pt-4">
                 <button 
                   onClick={() => setHistoryExpanded(!historyExpanded)}
