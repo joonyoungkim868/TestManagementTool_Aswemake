@@ -332,7 +332,7 @@ const LoginScreen = () => {
               className="mt-1 block w-full p-2 border rounded" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
-              placeholder="admin@company.com"
+              placeholder="이메일을 입력해 주세요"
             />
           </div>
           <button disabled={loading} type="submit" className="w-full bg-primary text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
