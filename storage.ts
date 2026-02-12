@@ -503,6 +503,24 @@ export const RunService = {
       setLocal(STORAGE_KEYS.RESULTS, list);
       return Promise.resolve();
     }
+  },
+  delete: async (runId: string): Promise<void> => {
+    if (USE_SUPABASE) {
+      // 1. 해당 실행에 포함된 결과(Results) 먼저 삭제
+      await supabase.from('testResults').delete().eq('runId', runId);
+      
+      // 2. 실행 계획(Run) 본체 삭제
+      await supabase.from('testRuns').delete().eq('id', runId);
+    } else {
+      // 로컬 스토리지 모드
+      let results = getLocal<TestResult>(STORAGE_KEYS.RESULTS);
+      results = results.filter(r => r.runId !== runId);
+      setLocal(STORAGE_KEYS.RESULTS, results);
+
+      let runs = getLocal<TestRun>(STORAGE_KEYS.RUNS);
+      runs = runs.filter(r => r.id !== runId);
+      setLocal(STORAGE_KEYS.RUNS, runs);
+    }
   }
 };
 
