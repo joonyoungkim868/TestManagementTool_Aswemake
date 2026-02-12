@@ -1,7 +1,7 @@
 import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
-  Layout, LayoutDashboard, FolderTree, PlayCircle, Settings, Users, LogOut, 
+  Layout, LayoutDashboard, FolderTree, PlayCircle, Settings, Users, LogOut, AlertOctagon, ChevronLeft,
   Plus, ChevronRight, ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, Clock, Save, History, Search, Filter,
   Download, Upload, FileText, AlertTriangle, ArrowRightLeft, ArrowRight, CheckSquare, Square,
   Play, PauseCircle, SkipForward, ArrowLeft, MoreVertical, Edit, Archive, Folder, Grid, List, Trash2, Bug, ExternalLink, BarChart2,
@@ -1640,7 +1640,7 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [isDashboardOpen, setDashboardOpen] = useState(true);
   const [runStats, setRunStats] = useState<Record<string, TestResult[]>>({});
 
-  // 테스트 실행 상태 (Form State)
+  // 폼 상태
   const [status, setStatus] = useState<TestStatus>('UNTESTED');
   const [actual, setActual] = useState('');
   const [comment, setComment] = useState('');
@@ -1648,29 +1648,28 @@ const TestRunner = ({ project }: { project: Project }) => {
   const [defectUrl, setDefectUrl] = useState('');
   const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
   
-  const [historyExpanded, setHistoryExpanded] = useState(true);
+  const [historyExpanded, setHistoryExpanded] = useState(false); // 초기값 닫힘으로 변경 (컴팩트 뷰 위해)
   const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
   
-  // [추가] 로딩 상태
+  // 로딩 상태
   const [loading, setLoading] = useState(true);
 
-  // 실행 목록 불러오기
+  // 실행 목록 로드
   const loadRuns = async () => {
-    setLoading(true); // 로딩 시작
+    setLoading(true);
     try {
       const loadedRuns = await RunService.getAll(project.id);
       setRuns(loadedRuns);
 
-      // 리스트 화면의 미니 통계를 위해 각 실행별 결과 미리 로드
       const stats: Record<string, TestResult[]> = {};
       await Promise.all(loadedRuns.map(async (r) => {
          stats[r.id] = await RunService.getResults(r.id);
       }));
       setRunStats(stats);
     } catch (e) {
-      console.error("Failed to load runs:", e);
+      console.error(e);
     } finally {
-      setLoading(false); // 로딩 끝
+      setLoading(false);
     }
   };
 
@@ -1679,17 +1678,15 @@ const TestRunner = ({ project }: { project: Project }) => {
     setSelectedRun(null);
   }, [project]);
 
-  // 실행 상세 진입 시 데이터 로드
+  // 상세 진입 시 데이터 로드
   useEffect(() => {
     if (selectedRun) {
-      // 로딩 느낌을 주기 위해 데이터 초기화 없이 비동기 요청 시작
       Promise.all([
         TestCaseService.getCases(project.id),
         RunService.getResults(selectedRun.id),
         TestCaseService.getSections(project.id)
       ]).then(([allCases, results, sections]) => {
         const sectionMap = new Map(sections.map(s => [s.id, s.title]));
-        // 현재 실행 계획에 포함된 케이스만 필터링
         const casesInRun = allCases
           .filter(c => selectedRun.caseIds.includes(c.id))
           .map(c => ({ ...c, sectionTitle: sectionMap.get(c.sectionId) }));
@@ -1702,12 +1699,30 @@ const TestRunner = ({ project }: { project: Project }) => {
     }
   }, [selectedRun]);
 
-  // [추가] 실행 삭제 핸들러
+  // 실행 삭제 핸들러
   const handleDeleteRun = async (runId: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // 부모 클릭(상세 진입) 방지
+    e.stopPropagation(); 
     if (window.confirm("이 테스트 실행(Test Run)을 삭제하시겠습니까?\n포함된 모든 결과 데이터가 영구 삭제됩니다.")) {
       await RunService.delete(runId);
-      loadRuns(); // 목록 갱신
+      loadRuns(); 
+    }
+  };
+
+  // 이전 케이스 이동
+  const handlePrev = () => {
+    if (activeCaseIndex > 0) {
+      const idx = activeCaseIndex - 1;
+      setActiveCaseIndex(idx);
+      loadResultForCase(runCases[idx], runResults);
+    }
+  };
+
+  // 다음 케이스 이동
+  const handleNext = () => {
+    if (activeCaseIndex < runCases.length - 1) {
+      const idx = activeCaseIndex + 1;
+      setActiveCaseIndex(idx);
+      loadResultForCase(runCases[idx], runResults);
     }
   };
 
@@ -1736,7 +1751,8 @@ const TestRunner = ({ project }: { project: Project }) => {
       setStepResults([]);
       setCurrentResultHistory([]);
     }
-    setHistoryExpanded(true);
+    // 케이스 이동 시 히스토리는 닫아둠 (깔끔하게)
+    setHistoryExpanded(false);
   };
 
   const autoSave = async (
@@ -1768,7 +1784,6 @@ const TestRunner = ({ project }: { project: Project }) => {
 
     await RunService.saveResult(payload);
     
-    // 로컬 상태 즉시 반영 (UX 향상)
     const updatedRes = { ...payload, id: 'temp' } as TestResult;
     setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), updatedRes]);
     
@@ -1776,7 +1791,6 @@ const TestRunner = ({ project }: { project: Project }) => {
     const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), updatedRes];
     setRunStats(prev => ({ ...prev, [selectedRun.id]: newStats }));
     
-    // 히스토리 갱신
     RunService.getResults(selectedRun.id).then(results => {
        const fresh = results.find(r => r.caseId === currentCase.id);
        if (fresh) setCurrentResultHistory(fresh.history || []);
@@ -1788,7 +1802,6 @@ const TestRunner = ({ project }: { project: Project }) => {
     newStepResults.push({ stepId, status: newStepStatus });
     setStepResults(newStepResults);
 
-    // 스텝 상태에 따라 전체 상태 자동 계산 (실패 하나라도 있으면 전체 실패)
     let calculatedStatus: TestStatus = 'PASS';
     const hasFail = newStepResults.some(s => s.status === 'FAIL');
     const hasBlock = newStepResults.some(s => s.status === 'BLOCK');
@@ -1810,9 +1823,9 @@ const TestRunner = ({ project }: { project: Project }) => {
     await autoSave('PASS', actual, comment, defectLabel, defectUrl, stepResults);
     
     if (activeCaseIndex < runCases.length - 1) {
-      const nextIdx = activeCaseIndex + 1;
-      setActiveCaseIndex(nextIdx);
-      loadResultForCase(runCases[nextIdx], runResults);
+      const idx = activeCaseIndex + 1;
+      setActiveCaseIndex(idx);
+      loadResultForCase(runCases[idx], runResults);
     }
   };
 
@@ -1830,6 +1843,16 @@ const TestRunner = ({ project }: { project: Project }) => {
 
   const stats = getRunStats();
 
+  const getStatusColor = (s: TestStatus) => {
+    switch(s) {
+      case 'PASS': return 'bg-green-100 text-green-700 border-green-500';
+      case 'FAIL': return 'bg-red-100 text-red-700 border-red-500';
+      case 'BLOCK': return 'bg-gray-800 text-white border-gray-900';
+      case 'NA': return 'bg-orange-100 text-orange-700 border-orange-500';
+      default: return 'bg-gray-100 text-gray-500 border-gray-300';
+    }
+  };
+
   const fullHistoryTimeline: (ExecutionHistoryItem & { isCurrent?: boolean })[] = status === 'UNTESTED' ? [] : [
     {
       status,
@@ -1844,9 +1867,9 @@ const TestRunner = ({ project }: { project: Project }) => {
     ...currentResultHistory.map(h => ({ ...h, isCurrent: false }))
   ];
 
-  // 1. 실행 목록 화면 (selectedRun === null)
+  // 1. 실행 목록 화면
   if (!selectedRun) {
-    if (loading) return <LoadingSpinner />; // 로딩 중 스피너 표시
+    if (loading) return <LoadingSpinner />;
 
     return (
       <div className="p-6">
@@ -1869,8 +1892,6 @@ const TestRunner = ({ project }: { project: Project }) => {
               <div key={run.id} className="bg-white p-4 rounded shadow border hover:border-primary cursor-pointer group" onClick={() => setSelectedRun(run)}>
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-bold text-lg text-gray-800 group-hover:text-primary">{run.title}</h3>
-                  
-                  {/* [수정] 날짜 및 삭제 버튼 그룹 */}
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-500">{new Date(run.createdAt).toLocaleDateString()}</span>
                     <button
@@ -1882,7 +1903,6 @@ const TestRunner = ({ project }: { project: Project }) => {
                     </button>
                   </div>
                 </div>
-                
                 <div className="flex items-center gap-2">
                    <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden flex">
                       <div className="bg-green-500 h-full" style={{ width: `${passWidth}%` }} />
@@ -1900,49 +1920,54 @@ const TestRunner = ({ project }: { project: Project }) => {
     );
   }
 
-  // 2. 실행 상세 화면 (selectedRun !== null)
-  // 데이터 로딩 중 처리 (runCases가 비었으면 로딩중으로 간주)
+  // 2. 실행 상세 화면 (로딩 중)
   if (runCases.length === 0) return <LoadingSpinner />;
 
   const activeCase = runCases[activeCaseIndex];
   if (!activeCase) return <div>Data Error</div>;
 
-  const getStatusColor = (s: TestStatus) => {
-    switch(s) {
-      case 'PASS': return 'bg-green-100 text-green-700 border-green-500';
-      case 'FAIL': return 'bg-red-100 text-red-700 border-red-500';
-      case 'BLOCK': return 'bg-gray-800 text-white border-gray-900';
-      case 'NA': return 'bg-orange-100 text-orange-700 border-orange-500';
-      default: return 'bg-gray-100 text-gray-500 border-gray-300';
-    }
-  };
-
+  // 3. 실행 상세 화면 (렌더링)
   return (
     <div className="flex flex-col h-full bg-gray-100">
-      {/* 상세 헤더 */}
-      <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm z-10">
+      {/* 헤더 */}
+      <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm z-10 sticky top-0">
          <div className="flex items-center gap-4">
-           <button onClick={() => setSelectedRun(null)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft/></button>
+           <button onClick={() => setSelectedRun(null)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition">
+             <ArrowLeft size={24} />
+           </button>
+           
            <div>
-             <h2 className="font-bold text-lg">{selectedRun.title}</h2>
-             <div className="flex items-center gap-2 text-xs text-gray-500">
-                <button onClick={() => setDashboardOpen(!isDashboardOpen)} className="flex items-center gap-1 hover:text-primary">
+             <h2 className="font-bold text-xl text-gray-900 leading-tight">{selectedRun.title}</h2>
+             
+             {/* 상단 네비게이션 및 통계 바 */}
+             <div className="flex items-center gap-3 mt-1.5">
+                <button 
+                  onClick={() => setDashboardOpen(!isDashboardOpen)} 
+                  className="flex items-center gap-2 px-3 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-sm font-bold text-gray-700 transition"
+                  title="통계 대시보드 열기/접기"
+                >
                   <span>{activeCaseIndex + 1} / {runCases.length}</span>
                   {isDashboardOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                 </button>
-                <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden flex">
-                   <div className="h-full bg-green-500" style={{ width: `${(stats.pass / stats.total)*100}%` }}/>
-                   <div className="h-full bg-red-500" style={{ width: `${(stats.fail / stats.total)*100}%` }}/>
+
+                <div className="h-4 w-px bg-gray-300 mx-1"></div> 
+                <div className="w-32 h-2.5 bg-gray-200 rounded-full overflow-hidden flex shadow-inner">
+                   <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${(stats.pass / stats.total)*100}%` }} title={`Pass: ${stats.pass}`}/>
+                   <div className="h-full bg-red-500 transition-all duration-500" style={{ width: `${(stats.fail / stats.total)*100}%` }} title={`Fail: ${stats.fail}`}/>
+                   <div className="h-full bg-gray-800 transition-all duration-500" style={{ width: `${(stats.block / stats.total)*100}%` }} title={`Block: ${stats.block}`}/>
                 </div>
              </div>
            </div>
          </div>
+
          <div className="flex gap-2">
-           <button onClick={() => setReportOpen(true)} className="px-3 py-1.5 border rounded hover:bg-gray-50 flex items-center gap-2 text-sm font-bold text-gray-600"><BarChart2 size={16}/> 리포트</button>
+           <button onClick={() => setReportOpen(true)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 text-sm font-bold text-gray-700 shadow-sm transition">
+             <BarChart2 size={18}/> 리포트
+           </button>
          </div>
       </div>
 
-      {/* 대시보드 (접기/펼치기 가능) */}
+      {/* 대시보드 영역 */}
       {isDashboardOpen && (
         <div className="bg-white border-b p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
            <div className="max-w-6xl mx-auto flex gap-8 items-center justify-center">
@@ -1994,8 +2019,9 @@ const TestRunner = ({ project }: { project: Project }) => {
         </div>
       )}
 
+      {/* 메인 작업 영역 */}
       <div className="flex-1 flex overflow-hidden">
-        {/* 왼쪽: 케이스 목록 */}
+        {/* 왼쪽: 케이스 목록 리스트 */}
         <div className="w-72 bg-white border-r overflow-y-auto">
           {runCases.map((c, idx) => {
             const res = runResults.find(r => r.caseId === c.id);
@@ -2013,209 +2039,191 @@ const TestRunner = ({ project }: { project: Project }) => {
           })}
         </div>
 
-        {/* 오른쪽: 상세 및 실행 */}
-        <div className="flex-1 flex overflow-hidden">
-           <div className="flex-1 overflow-y-auto p-8 bg-white max-w-4xl mx-auto shadow-sm my-4 rounded-lg">
-              {/* 케이스 정보 헤더 */}
-              <div className="mb-6 pb-4 border-b">
-                 <div className="flex gap-2 mb-2">
-                    <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-bold text-gray-600">{activeCase.sectionTitle || 'General'}</span>
-                    <span className="px-2 py-0.5 bg-blue-50 rounded text-xs font-bold text-blue-600">{activeCase.priority}</span>
-                 </div>
-                 <h1 className="text-2xl font-bold text-gray-900 mb-4">{activeCase.title}</h1>
-                 {activeCase.precondition && (
-                   <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-200 whitespace-pre-wrap">
-                     <strong>Precondition:</strong> {formatTextWithNumbers(activeCase.precondition)}
-                   </div>
-                 )}
-              </div>
+        {/* 오른쪽: 상세 및 실행 (개선된 UI) */}
+        <div className="flex-1 flex overflow-hidden relative group bg-gray-100">
+           
+           {/* [NEW] 1. 이전 케이스 이동 버튼 (플로팅) */}
+           <button 
+              onClick={handlePrev}
+              disabled={activeCaseIndex === 0}
+              className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-12 h-12 bg-white rounded-full shadow-lg border border-gray-200 text-gray-400 flex items-center justify-center hover:text-primary hover:border-primary hover:scale-110 transition-all disabled:opacity-0 disabled:pointer-events-none"
+              title="이전 케이스 (Previous)"
+           >
+              <ChevronLeft size={32} />
+           </button>
 
-              {/* 스텝 실행 영역 */}
-              <div className="space-y-6 mb-8">
-                 {activeCase.steps.map((step, i) => {
-                   const stepRes = stepResults.find(sr => sr.stepId === step.id)?.status || 'UNTESTED';
-                   return (
-                   <div key={i} className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-500 flex-shrink-0">{i+1}</div>
-                      <div className="flex-1 grid grid-cols-2 gap-4">
-                         <div className="bg-gray-50 p-3 rounded border">
-                           <div className="text-xs font-bold text-gray-400 mb-1">ACTION</div>
-                           <div className="text-sm whitespace-pre-wrap">{formatTextWithNumbers(step.step)}</div>
-                         </div>
-                         <div className="bg-gray-50 p-3 rounded border">
-                           <div className="text-xs font-bold text-gray-400 mb-1">EXPECTED</div>
-                           <div className="text-sm whitespace-pre-wrap">{formatTextWithNumbers(step.expected)}</div>
-                         </div>
-                      </div>
-                      <div className="flex flex-col gap-1 w-20 flex-shrink-0">
-                         <button 
-                            onClick={() => handleStepStatusChange(step.id, 'PASS')}
-                            className={`px-2 py-1 text-xs font-bold rounded border ${stepRes === 'PASS' ? 'bg-green-500 text-white border-green-600' : 'bg-white text-gray-400 hover:bg-green-50'}`}
-                         >PASS</button>
-                         <button 
-                            onClick={() => handleStepStatusChange(step.id, 'FAIL')}
-                            className={`px-2 py-1 text-xs font-bold rounded border ${stepRes === 'FAIL' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-gray-400 hover:bg-red-50'}`}
-                         >FAIL</button>
-                         <button 
-                            onClick={() => handleStepStatusChange(step.id, 'BLOCK')}
-                            className={`px-2 py-1 text-xs font-bold rounded border ${stepRes === 'BLOCK' ? 'bg-gray-800 text-white border-gray-900' : 'bg-white text-gray-400 hover:bg-gray-100'}`}
-                         >BLK</button>
-                      </div>
-                   </div>
-                 )})}
-              </div>
+           {/* [NEW] 2. 다음 케이스 이동 버튼 (플로팅) */}
+           <button 
+              onClick={handleNext}
+              disabled={activeCaseIndex === runCases.length - 1}
+              className="absolute right-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 bg-white rounded-full shadow-lg border border-gray-200 text-gray-400 flex items-center justify-center hover:text-primary hover:border-primary hover:scale-110 transition-all disabled:opacity-0 disabled:pointer-events-none"
+              title="다음 케이스 (Next)"
+           >
+              <ChevronRight size={32} />
+           </button>
 
-              {/* 최종 결과 입력 카드 */}
-              <div className={`border-2 rounded-xl p-6 transition-colors ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
-                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><PlayCircle size={20}/> 결과 입력</h3>
-                 
-                 <div className="flex gap-2 mb-4">
-                    {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
-                      <button 
-                        key={s}
-                        onClick={() => handleStatusChange(s)}
-                        className={`flex-1 py-3 rounded font-bold transition-all ${status === s ? getStatusColor(s) + ' ring-2 ring-offset-1' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                 </div>
-
-                 <div className="space-y-4">
-                    {/* FAIL일 때만 보이는 결함 리포트 입력창 */}
-                    {status === 'FAIL' && (
-                       <div className="bg-red-50 p-4 rounded border border-red-100 animate-in fade-in">
-                          <label className="block text-sm font-bold text-red-800 mb-2 flex items-center gap-2"><Bug size={16}/> 결함 리포트 (Issue Tracker Link)</label>
-                          <div className="flex gap-2">
-                             <input 
-                                className="flex-1 border rounded p-2 text-sm" 
-                                placeholder="이슈 키 (예: QA-123)" 
-                                value={defectLabel} 
-                                onChange={e => setDefectLabel(e.target.value)}
-                                onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                             />
-                             <input 
-                                className="flex-[2] border rounded p-2 text-sm" 
-                                placeholder="이슈 URL (예: https://jira...)" 
-                                value={defectUrl} 
-                                onChange={e => setDefectUrl(e.target.value)}
-                                onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                             />
-                          </div>
-                       </div>
-                    )}
-                    
-                    <div>
-                       <label className="block text-sm font-bold text-gray-700 mb-1">실제 결과 (Actual Result)</label>
-                       <textarea 
-                          className="w-full border rounded p-2 h-20" 
-                          placeholder="기대 결과와 다를 경우 상세히 기술하세요." 
-                          value={actual} 
-                          onChange={e => setActual(e.target.value)}
-                          onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                       />
-                    </div>
-                    <div>
-                       <label className="block text-sm font-bold text-gray-700 mb-1">코멘트 (Optional)</label>
-                       <input 
-                          className="w-full border rounded p-2" 
-                          placeholder="비고 사항" 
-                          value={comment} 
-                          onChange={e => setComment(e.target.value)}
-                          onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                       />
-                    </div>
-                 </div>
-
-                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
-                    <button onClick={forcePassAndNext} className="px-6 py-2 bg-primary text-white font-bold rounded shadow hover:bg-blue-600 flex items-center gap-2">
-                       <CheckCircle size={18}/> Pass & Next
-                    </button>
-                 </div>
-              </div>
-              
-              {/* 실행 이력 (Timeline) */}
-              <div className="mt-8 border-t pt-4">
-                <button 
-                  onClick={() => setHistoryExpanded(!historyExpanded)}
-                  className="w-full flex justify-between items-center text-gray-500 font-bold hover:text-gray-700 p-2"
-                >
-                  <span className="flex items-center gap-2"><RotateCcw size={16}/> 실행 이력 (Execution History Timeline)</span>
-                  {historyExpanded ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
-                </button>
+           {/* 메인 컨텐츠 영역 (스크롤 가능) */}
+           <div className="flex-1 overflow-y-auto px-12 py-6">
+              <div className="max-w-5xl mx-auto space-y-4">
                 
-                {historyExpanded && (
-                  <div className="mt-2 space-y-4 bg-gray-50 rounded p-4 relative">
-                    <div className="absolute top-4 bottom-4 left-6 w-0.5 bg-gray-200"></div>
+                {/* A. 케이스 헤더 정보 */}
+                <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+                   <div className="flex gap-2 mb-2">
+                      <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-bold text-gray-600 border">{activeCase.sectionTitle || 'General'}</span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold border ${activeCase.priority === 'HIGH' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{activeCase.priority} Priority</span>
+                   </div>
+                   <h1 className="text-2xl font-bold text-gray-900 mb-2">{activeCase.title}</h1>
+                   {activeCase.precondition && (
+                     <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-200 whitespace-pre-wrap flex gap-2">
+                       <AlertOctagon size={16} className="mt-0.5 flex-shrink-0"/>
+                       <div><strong>Precondition:</strong> {formatTextWithNumbers(activeCase.precondition)}</div>
+                     </div>
+                   )}
+                </div>
 
-                    {fullHistoryTimeline.length === 0 && <div className="text-center text-gray-400 text-sm py-4">아직 실행 기록이 없습니다.</div>}
-                    
-                    {fullHistoryTimeline.map((h, idx) => (
-                      <div key={idx} className="relative pl-8">
-                        <div className={`absolute left-4 top-3 w-4 h-4 rounded-full border-2 border-white shadow-sm -ml-2 z-10 ${
-                            h.status === 'PASS' ? 'bg-green-500' : 
-                            h.status === 'FAIL' ? 'bg-red-500' : 
-                            h.status === 'BLOCK' ? 'bg-gray-800' : 'bg-gray-400'
-                        }`}></div>
-
-                        <div className={`bg-white border rounded p-4 shadow-sm ${h.isCurrent ? 'ring-2 ring-primary ring-offset-2' : ''}`}>
-                          <div className="flex justify-between mb-2 items-start">
-                             <div className="flex items-center gap-2">
-                               {h.isCurrent && <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">Current</span>}
-                               <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                 h.status === 'PASS' ? 'bg-green-100 text-green-700' : 
-                                 h.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                               }`}>{h.status}</span>
-                               <span className="font-bold text-gray-700 text-sm">{getUserName(h.testerId)}</span>
-                             </div>
-                             <span className="text-xs text-gray-400">{new Date(h.timestamp).toLocaleString()}</span>
-                          </div>
-                          
-                          <div className="space-y-2 mb-2">
-                             {(h.actualResult || h.comment) && (
-                               <div className="bg-gray-50 p-2 rounded text-sm text-gray-700">
-                                  {h.actualResult && <div className="mb-1"><span className="font-bold text-gray-500 text-xs">ACTUAL:</span> {h.actualResult}</div>}
-                                  {h.comment && <div><span className="font-bold text-gray-500 text-xs">COMMENT:</span> {h.comment}</div>}
-                               </div>
-                             )}
-                             
-                             {h.stepResults && h.stepResults.length > 0 && (
-                               <div className="mt-2">
-                                  <div className="text-xs font-bold text-gray-400 mb-1">STEP DETAILS</div>
-                                  <div className="grid grid-cols-1 gap-1">
-                                    {activeCase.steps.map((step, sIdx) => {
-                                       const sRes = h.stepResults?.find(sr => sr.stepId === step.id);
-                                       if (!sRes) return null;
-                                       return (
-                                         <div key={step.id} className="flex items-center gap-2 text-xs">
-                                            <span className={`w-14 font-mono font-bold text-center rounded px-1 ${
-                                              sRes.status === 'PASS' ? 'bg-green-100 text-green-700' :
-                                              sRes.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                                            }`}>{sRes.status}</span>
-                                            <span className="text-gray-500 font-semibold">Step {sIdx + 1}:</span>
-                                            <span className="truncate text-gray-600">{step.step.substring(0, 50)}...</span>
-                                         </div>
-                                       );
-                                    })}
-                                  </div>
-                               </div>
-                             )}
-                          </div>
-
-                          {h.issues && h.issues.length > 0 && (
-                            <div className="mt-2 pt-2 border-t flex gap-2">
-                               {h.issues.map(issue => (
-                                 <a key={issue.id} href={issue.url} target="_blank" className="text-red-600 text-xs font-bold flex items-center gap-1 hover:underline">
-                                   <Bug size={12}/> {issue.label}
-                                 </a>
-                               ))}
-                            </div>
-                          )}
+                {/* B. 테스트 스텝 (시각적 강조) */}
+                <div className="space-y-3">
+                   {activeCase.steps.map((step, i) => {
+                     const stepRes = stepResults.find(sr => sr.stepId === step.id)?.status || 'UNTESTED';
+                     return (
+                     <div key={i} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
+                        <div className="flex flex-col items-center gap-2">
+                           <div className="w-8 h-8 rounded-full bg-gray-800 text-white flex items-center justify-center font-bold text-sm shadow-sm">{i+1}</div>
                         </div>
+
+                        <div className="flex-1 grid grid-cols-2 gap-6">
+                           <div className="space-y-1">
+                             <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Action</div>
+                             <div className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{formatTextWithNumbers(step.step)}</div>
+                           </div>
+                           <div className="space-y-1 pl-6 border-l border-gray-100">
+                             <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">Expected Result</div>
+                             <div className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{formatTextWithNumbers(step.expected)}</div>
+                           </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1 w-16 flex-shrink-0 justify-center">
+                           <button 
+                              onClick={() => handleStepStatusChange(step.id, 'PASS')}
+                              className={`h-8 text-[10px] font-bold rounded border transition-all ${stepRes === 'PASS' ? 'bg-green-500 text-white border-green-600 shadow-sm' : 'bg-white text-gray-300 hover:text-green-600 hover:border-green-200'}`}
+                           >PASS</button>
+                           <button 
+                              onClick={() => handleStepStatusChange(step.id, 'FAIL')}
+                              className={`h-8 text-[10px] font-bold rounded border transition-all ${stepRes === 'FAIL' ? 'bg-red-500 text-white border-red-600 shadow-sm' : 'bg-white text-gray-300 hover:text-red-600 hover:border-red-200'}`}
+                           >FAIL</button>
+                        </div>
+                     </div>
+                   )})}
+                </div>
+
+                {/* C. 결과 입력 섹션 (Compact Mode) */}
+                <div className={`rounded-xl p-4 transition-colors shadow-sm border-2 ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]} bg-white`}>
+                   <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm"><PlayCircle size={18}/> Test Result</h3>
+                      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                        {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
+                          <button 
+                            key={s}
+                            onClick={() => handleStatusChange(s)}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${status === s ? getStatusColor(s) + ' shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}
+                          >
+                            {s}
+                          </button>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
+                   </div>
+
+                   {/* 입력 필드 (Grid Layout) */}
+                   <div className="grid grid-cols-2 gap-4">
+                      {/* 1. Actual Result */}
+                      <div>
+                         <label className="block text-xs font-bold text-gray-500 mb-1">Actual Result</label>
+                         <textarea 
+                            className="w-full border rounded p-2 text-sm h-16 resize-none focus:ring-1 focus:ring-primary focus:border-primary" 
+                            placeholder="실제 결과 입력..." 
+                            value={actual} 
+                            onChange={e => setActual(e.target.value)}
+                            onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                         />
+                      </div>
+                      
+                      {/* 2. Comment & Defect */}
+                      <div className="space-y-2">
+                         <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">Comment</label>
+                            <input 
+                               className="w-full border rounded p-2 text-sm h-8 focus:ring-1 focus:ring-primary focus:border-primary" 
+                               placeholder="비고 사항..." 
+                               value={comment} 
+                               onChange={e => setComment(e.target.value)}
+                               onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                            />
+                         </div>
+
+                         {status === 'FAIL' && (
+                           <div className="flex gap-2 animate-in fade-in slide-in-from-top-1">
+                              <div className="relative flex-1">
+                                <Bug size={14} className="absolute left-2 top-2 text-red-400"/>
+                                <input 
+                                    className="w-full border border-red-200 bg-red-50 rounded pl-7 p-1.5 text-xs h-8 text-red-800 placeholder-red-300 focus:ring-1 focus:ring-red-500" 
+                                    placeholder="Issue Key (QA-123)" 
+                                    value={defectLabel} 
+                                    onChange={e => setDefectLabel(e.target.value)}
+                                    onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                                 />
+                              </div>
+                              <input 
+                                  className="flex-[2] border border-red-200 bg-red-50 rounded p-1.5 text-xs h-8 text-red-800 placeholder-red-300 focus:ring-1 focus:ring-red-500" 
+                                  placeholder="Issue URL..." 
+                                  value={defectUrl} 
+                                  onChange={e => setDefectUrl(e.target.value)}
+                                  onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                               />
+                           </div>
+                         )}
+                         {status !== 'FAIL' && (
+                            <div className="h-8 flex items-center justify-end">
+                               <button onClick={forcePassAndNext} className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded shadow hover:bg-blue-600 flex items-center gap-1 transition-colors">
+                                 <CheckCircle size={14}/> Pass & Next
+                               </button>
+                            </div>
+                         )}
+                      </div>
+                   </div>
+                   
+                   {status === 'FAIL' && (
+                     <div className="mt-2 flex justify-end">
+                        <button onClick={forcePassAndNext} className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded shadow hover:bg-blue-600 flex items-center gap-1">
+                           <CheckCircle size={14}/> Save & Next
+                        </button>
+                     </div>
+                   )}
+                </div>
+                
+                {/* D. 실행 이력 (최소화) */}
+                <div className="border-t pt-2">
+                  <button 
+                    onClick={() => setHistoryExpanded(!historyExpanded)}
+                    className="w-full flex justify-between items-center text-gray-400 font-bold hover:text-gray-600 p-1 text-xs"
+                  >
+                    <span className="flex items-center gap-2"><RotateCcw size={14}/> Execution History</span>
+                    {historyExpanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                  </button>
+                  
+                  {historyExpanded && (
+                    <div className="mt-2 space-y-2 pl-2">
+                      {fullHistoryTimeline.length === 0 && <div className="text-center text-gray-300 text-xs py-2">No history.</div>}
+                      {fullHistoryTimeline.map((h, idx) => (
+                        <div key={idx} className="flex gap-2 items-start text-xs text-gray-500">
+                           <span className={`px-1.5 rounded font-bold ${h.status==='PASS'?'bg-green-100 text-green-700':h.status==='FAIL'?'bg-red-100 text-red-700':'bg-gray-100'}`}>{h.status}</span>
+                           <span>{new Date(h.timestamp).toLocaleDateString()} by {getUserName(h.testerId)}</span>
+                           {h.isCurrent && <span className="text-blue-500 font-bold">(Current)</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </div>
            </div>
         </div>
