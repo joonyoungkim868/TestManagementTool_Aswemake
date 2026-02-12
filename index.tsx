@@ -480,7 +480,15 @@ const ProjectModal = ({
   );
 };
 
-const ProjectList = ({ projects, onSelect, onCreate }: { projects: Project[], onSelect: (p: Project) => void, onCreate: () => void }) => {
+const ProjectList = ({ 
+  projects, onSelect, onCreate, onEdit, onDelete 
+}: { 
+  projects: Project[], 
+  onSelect: (p: Project) => void, 
+  onCreate: () => void,
+  onEdit: (p: Project) => void,    // [추가]
+  onDelete: (id: string) => void   // [추가]
+}) => {
   return (
     <div className="p-8 max-w-7xl mx-auto h-full overflow-y-auto">
        <div className="flex justify-between items-center mb-8">
@@ -493,28 +501,59 @@ const ProjectList = ({ projects, onSelect, onCreate }: { projects: Project[], on
           </button>
        </div>
        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map(p => (
-            <div key={p.id} onClick={() => onSelect(p)} className="bg-white rounded-xl shadow-sm border hover:border-primary hover:shadow-md cursor-pointer transition p-6 flex flex-col h-48 group">
-               <div className="flex justify-between items-start mb-4">
-                  <div className={`p-2 rounded-lg ${p.status === 'ACTIVE' ? 'bg-blue-100 text-primary' : 'bg-gray-100 text-gray-500'}`}>
-                    <Folder size={24} />
-                  </div>
-                  {p.status === 'ACTIVE' ? (
-                    <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-bold">Active</span>
-                  ) : (
-                    <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full font-bold">Archived</span>
-                  )}
-               </div>
-               <h3 className="font-bold text-xl text-gray-900 mb-2 truncate group-hover:text-primary transition-colors">{p.title}</h3>
-               <p className="text-sm text-gray-500 line-clamp-2 flex-1">{p.description || '설명이 없습니다.'}</p>
-               <div className="mt-4 pt-4 border-t text-xs text-gray-400 flex justify-between items-center">
-                  <span>Created: {new Date(p.createdAt).toLocaleDateString()}</span>
-                  <ArrowRight size={16} className="text-gray-300 group-hover:text-primary transition-colors" />
-               </div>
-            </div>
-          ))}
+          {projects.map(p => {
+            const isArchived = p.status === 'ARCHIVED';
+            return (
+              <div 
+                key={p.id} 
+                onClick={() => onSelect(p)} 
+                className={`rounded-xl shadow-sm border p-6 flex flex-col h-52 transition group relative
+                  ${isArchived ? 'bg-gray-50 border-gray-200' : 'bg-white hover:border-primary hover:shadow-md cursor-pointer'}
+                `}
+              >
+                 <div className="flex justify-between items-start mb-4">
+                    <div className={`p-2 rounded-lg ${isArchived ? 'bg-gray-200 text-gray-400' : 'bg-blue-100 text-primary'}`}>
+                      {isArchived ? <Archive size={24} /> : <Folder size={24} />}
+                    </div>
+                    
+                    {/* [추가] 수정/삭제 버튼 그룹 (우측 상단) */}
+                    <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                       <button 
+                         onClick={() => onEdit(p)}
+                         className="p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 rounded transition"
+                         title="수정 / 상태 변경"
+                       >
+                         <Edit size={16} />
+                       </button>
+                       <button 
+                         onClick={() => onDelete(p.id)}
+                         className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded transition"
+                         title="프로젝트 삭제"
+                       >
+                         <Trash2 size={16} />
+                       </button>
+                    </div>
+                 </div>
+                 
+                 <div className="flex items-center gap-2 mb-2">
+                    <h3 className={`font-bold text-xl truncate ${isArchived ? 'text-gray-500' : 'text-gray-900 group-hover:text-primary'}`}>
+                      {p.title}
+                    </h3>
+                    {isArchived && <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-bold uppercase">Archived</span>}
+                 </div>
+                 
+                 <p className="text-sm text-gray-500 line-clamp-2 flex-1">{p.description || '설명이 없습니다.'}</p>
+                 
+                 <div className="mt-4 pt-4 border-t text-xs text-gray-400 flex justify-between items-center">
+                    <span>Created: {new Date(p.createdAt).toLocaleDateString()}</span>
+                    {!isArchived && <ArrowRight size={16} className="text-gray-300 group-hover:text-primary transition-colors" />}
+                 </div>
+              </div>
+            );
+          })}
+          
           {/* Create Placeholder */}
-          <div onClick={onCreate} className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-primary hover:text-primary hover:bg-blue-50 cursor-pointer transition h-48">
+          <div onClick={onCreate} className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-primary hover:text-primary hover:bg-blue-50 cursor-pointer transition h-52">
              <Plus size={32} className="mb-2"/>
              <span className="font-bold">새 프로젝트 생성</span>
           </div>
@@ -2186,9 +2225,15 @@ const App = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [view, setView] = useState<'DASHBOARD' | 'CASES' | 'RUNS' | 'ADMIN' | 'PROJECTS'>('DASHBOARD');
+  
+  // 모달 및 드롭다운 상태
   const [isProjectModalOpen, setProjectModalOpen] = useState(false);
   const [isProjectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  
+  // [추가] 수정 중인 프로젝트 상태 (null이면 생성 모드)
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
+  // 초기 로그인 및 데이터 로드
   useEffect(() => {
     const u = AuthService.getCurrentUser();
     if (u && u.id && u.name && u.email) {
@@ -2201,15 +2246,17 @@ const App = () => {
     }
   }, []);
 
+  // [수정] 프로젝트 목록 로드 및 '마지막 접속 프로젝트' 자동 선택
   const loadProjects = async () => {
     const list = await ProjectService.getAll();
     setProjects(list);
     
+    // 리스트가 있는데 선택된 프로젝트가 없다면 (초기 진입 시)
     if (list.length > 0 && !activeProject) {
       // 1. 로컬 스토리지에서 마지막으로 봤던 프로젝트 ID 조회
       const lastId = localStorage.getItem('lastActiveProjectId');
       
-      // 2. 해당 ID가 실제 목록에 존재하는지 확인 (삭제되었을 수도 있으므로)
+      // 2. 해당 ID가 실제 목록에 존재하는지 확인
       const lastProject = list.find(p => p.id === lastId);
       
       if (lastProject) {
@@ -2220,6 +2267,7 @@ const App = () => {
     }
   };
 
+  // [추가] 프로젝트가 변경될 때마다 로컬 스토리지에 ID 저장
   useEffect(() => {
     if (activeProject) {
       localStorage.setItem('lastActiveProjectId', activeProject.id);
@@ -2241,6 +2289,27 @@ const App = () => {
     AuthService.logout();
     setUser(null);
     setActiveProject(null);
+    localStorage.removeItem('lastActiveProjectId'); // 로그아웃 시 기록 삭제 (선택사항)
+  };
+
+  // [추가] 프로젝트 삭제 핸들러
+  const handleDeleteProject = async (projectId: string) => {
+    if (window.confirm("경고: 프로젝트를 삭제하면 포함된 모든 테스트 케이스, 실행 이력, 결과가 영구적으로 삭제됩니다.\n\n정말 삭제하시겠습니까?")) {
+      await ProjectService.delete(projectId);
+      await loadProjects(); // 목록 갱신
+      
+      // 만약 삭제한 프로젝트를 보고 있었다면 대시보드에서 나감
+      if (activeProject?.id === projectId) {
+        setActiveProject(null);
+        setView('PROJECTS');
+      }
+    }
+  };
+
+  // [추가] 모달 닫기 핸들러 (상태 초기화)
+  const closeProjectModal = () => {
+    setProjectModalOpen(false);
+    setEditingProject(null); // 수정 모드 종료
   };
 
   if (!user) {
@@ -2254,6 +2323,7 @@ const App = () => {
   return (
     <AuthContext.Provider value={{ user, login, logout, users }}>
       <div className="flex h-screen bg-gray-100 text-gray-900 font-sans">
+        {/* 사이드바 영역 */}
         <div className="w-64 bg-gray-900 text-white flex flex-col shadow-xl">
           <div className="p-4 border-b border-gray-800">
             <h1 className="text-xl font-bold tracking-tight text-blue-400 mb-4">QA Manager</h1>
@@ -2290,7 +2360,7 @@ const App = () => {
                       ))}
                    </div>
                    <div className="border-t mt-1 pt-1 px-2 pb-1">
-                      <button onClick={() => { setProjectModalOpen(true); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
+                      <button onClick={() => { setEditingProject(null); setProjectModalOpen(true); setProjectDropdownOpen(false); }} className="w-full text-left px-2 py-1.5 hover:bg-blue-50 text-blue-600 text-xs font-bold rounded flex items-center gap-1">
                         <Plus size={12}/> 새 프로젝트 생성
                       </button>
                    </div>
@@ -2332,12 +2402,15 @@ const App = () => {
           </div>
         </div>
 
+        {/* 메인 컨텐츠 영역 */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {view === 'PROJECTS' ? (
              <ProjectList 
                projects={projects} 
                onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
-               onCreate={() => setProjectModalOpen(true)} 
+               onCreate={() => { setEditingProject(null); setProjectModalOpen(true); }} // 생성 모드
+               onEdit={(p) => { setEditingProject(p); setProjectModalOpen(true); }}     // 수정 모드
+               onDelete={handleDeleteProject} // 삭제 핸들러
              />
           ) : activeProject ? (
             <>
@@ -2347,23 +2420,35 @@ const App = () => {
               {view === 'ADMIN' && <AdminPanel />}
             </>
           ) : (
+             // 활성 프로젝트가 없으면 프로젝트 리스트 보여줌
              <ProjectList 
                projects={projects} 
                onSelect={(p) => { setActiveProject(p); setView('DASHBOARD'); }} 
-               onCreate={() => setProjectModalOpen(true)} 
+               onCreate={() => { setEditingProject(null); setProjectModalOpen(true); }} 
+               onEdit={(p) => { setEditingProject(p); setProjectModalOpen(true); }}
+               onDelete={handleDeleteProject}
              />
           )}
         </div>
         
+        {/* 프로젝트 생성/수정 모달 */}
         <ProjectModal 
           isOpen={isProjectModalOpen} 
-          onClose={() => setProjectModalOpen(false)} 
-          onSubmit={async (t, d, s) => { await ProjectService.create({title: t, description: d, status: s}); loadProjects(); }} 
+          onClose={closeProjectModal}
+          initialData={editingProject || undefined} // 수정 시 기존 데이터 주입
+          onSubmit={async (t, d, s) => { 
+            if (editingProject) {
+              // 수정 로직
+              await ProjectService.update({ ...editingProject, title: t, description: d, status: s });
+            } else {
+              // 생성 로직
+              await ProjectService.create({ title: t, description: d, status: s });
+            }
+            await loadProjects(); // 목록 갱신
+            closeProjectModal();
+          }} 
         />
       </div>
     </AuthContext.Provider>
   );
 };
-
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
