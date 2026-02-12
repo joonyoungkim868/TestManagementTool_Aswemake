@@ -1,7 +1,7 @@
 import { 
-  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, Issue, ExecutionHistoryItem 
+  User, Project, Section, TestCase, TestRun, TestResult, HistoryLog, Issue, ExecutionHistoryItem, TestStatus 
 } from './types';
-import { supabase } from '../supabaseClient'; // 상위 폴더의 클라이언트 import
+import { supabase } from '../supabaseClient';
 
 // Supabase 사용 설정
 const USE_SUPABASE = true; 
@@ -32,7 +32,7 @@ const getLocal = <T>(key: string): T[] => {
 };
 const setLocal = (key: string, data: any[]) => localStorage.setItem(key, JSON.stringify(data));
 
-// --- Services (Class Static 형태로 통일) ---
+// --- Services ---
 
 export class AuthService {
   static async getAllUsers(): Promise<User[]> {
@@ -45,8 +45,7 @@ export class AuthService {
   }
 
   static getCurrentUser(): User | null {
-    // 세션 유지는 로컬스토리지나 메모리에서 관리
-    return null; // App.tsx에서 로드함
+    return null; // App.tsx에서 로드 및 관리
   }
 
   static async login(email: string): Promise<User | null> {
@@ -56,7 +55,13 @@ export class AuthService {
       
       // 데모용: 계정이 없으면 자동 생성 (Admin 등)
       if (email === 'admin@company.com') {
-        const admin: User = { id: generateId(), name: 'Admin', email, role: 'ADMIN', status: 'ACTIVE' };
+        const admin: User = { 
+          id: generateId(), 
+          name: 'Admin', 
+          email, 
+          role: 'ADMIN', 
+          status: 'ACTIVE' 
+        };
         await supabase.from('users').insert(admin);
         return admin;
       }
@@ -66,7 +71,13 @@ export class AuthService {
       const users = getLocal<User>(STORAGE_KEYS.USERS);
       let user = users.find(u => u.email === email);
       if (!user) {
-         user = { id: generateId(), email, name: email.split('@')[0], role: email.includes('admin') ? 'ADMIN' : 'USER', status: 'ACTIVE' } as User;
+         user = { 
+           id: generateId(), 
+           email, 
+           name: email.split('@')[0], 
+           role: email.includes('admin') ? 'ADMIN' : 'USER', 
+           status: 'ACTIVE' 
+         } as User;
          users.push(user);
          setLocal(STORAGE_KEYS.USERS, users);
       }
@@ -95,7 +106,7 @@ export class ProjectService {
       description,
       status,
       createdAt: now()
-    } as Project; // 타입 호환용 캐스팅
+    } as Project;
 
     if (USE_SUPABASE) {
       await supabase.from('projects').insert(newProject);
@@ -129,8 +140,19 @@ export class ProjectService {
       // Cascade Delete Logic
       const { data: runs } = await supabase.from('testRuns').select('id').eq('projectId', projectId);
       const runIds = runs?.map(r => r.id) || [];
-      if (runIds.length > 0) await supabase.from('testResults').delete().in('runId', runIds);
+      
+      if (runIds.length > 0) {
+        await supabase.from('testResults').delete().in('runId', runIds);
+      }
       await supabase.from('testRuns').delete().eq('projectId', projectId);
+      
+      // History 로그 삭제 (선택 사항 - 데이터 정리용)
+      const { data: cases } = await supabase.from('testCases').select('id').eq('projectId', projectId);
+      const caseIds = cases?.map(c => c.id) || [];
+      if (caseIds.length > 0) {
+        await supabase.from('historyLogs').delete().in('entityId', caseIds);
+      }
+
       await supabase.from('testCases').delete().eq('projectId', projectId);
       await supabase.from('sections').delete().eq('projectId', projectId);
       await supabase.from('projects').delete().eq('id', projectId);
@@ -151,7 +173,13 @@ export class TestCaseService {
   }
 
   static async createSection(data: Partial<Section>) {
-    const newSec = { id: generateId(), projectId: data.projectId!, title: data.title!, parentId: null } as Section;
+    const newSec = { 
+      id: generateId(), 
+      projectId: data.projectId!, 
+      title: data.title!, 
+      parentId: null 
+    } as Section;
+
     if (USE_SUPABASE) {
       await supabase.from('sections').insert(newSec);
     } else {
@@ -167,7 +195,11 @@ export class TestCaseService {
       await supabase.from('testCases').delete().eq('sectionId', sectionId);
       await supabase.from('sections').delete().eq('id', sectionId);
     } else {
-      // Local mock delete
+      let cases = getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.sectionId !== sectionId);
+      setLocal(STORAGE_KEYS.CASES, cases);
+      
+      let sections = getLocal<Section>(STORAGE_KEYS.SECTIONS).filter(s => s.id !== sectionId);
+      setLocal(STORAGE_KEYS.SECTIONS, sections);
     }
   }
 
@@ -181,16 +213,21 @@ export class TestCaseService {
 
   static async saveCase(data: Partial<TestCase>, user: User): Promise<TestCase> {
     const payload = { ...data, updatedAt: now() };
+    
     if (!payload.id) {
        // Create
        payload.id = generateId();
        payload.createdAt = now();
        payload.authorId = user.id;
+       
        if(USE_SUPABASE) {
           await supabase.from('testCases').insert(payload);
           await HistoryService.logChange(null, payload, user);
        } else {
-          // Local logic
+          const list = getLocal<TestCase>(STORAGE_KEYS.CASES);
+          list.push(payload as TestCase);
+          setLocal(STORAGE_KEYS.CASES, list);
+          HistoryService.logChange(null, payload, user);
        }
        return payload as TestCase;
     } else {
@@ -199,18 +236,70 @@ export class TestCaseService {
           const { data: oldData } = await supabase.from('testCases').select('*').eq('id', payload.id).single();
           await HistoryService.logChange(oldData, payload, user);
           await supabase.from('testCases').update(payload).eq('id', payload.id);
+       } else {
+          const list = getLocal<TestCase>(STORAGE_KEYS.CASES);
+          const idx = list.findIndex(c => c.id === payload.id);
+          if (idx !== -1) {
+            const oldData = list[idx];
+            HistoryService.logChange(oldData, payload, user);
+            list[idx] = { ...oldData, ...payload } as TestCase;
+            setLocal(STORAGE_KEYS.CASES, list);
+          }
        }
        return payload as TestCase;
     }
   }
 
   static async deleteCase(caseId: string): Promise<void> {
-    if (USE_SUPABASE) await supabase.from('testCases').delete().eq('id', caseId);
+    if (USE_SUPABASE) {
+      await supabase.from('testCases').delete().eq('id', caseId);
+    } else {
+      const list = getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.id !== caseId);
+      setLocal(STORAGE_KEYS.CASES, list);
+    }
   }
 
-  static async importCases(projectId: string, cases: any[], user: User) {
-     // ... (Import 로직은 동일하게 유지하되 DB Insert 부분만 수정 필요)
-     // 편의상 이 부분은 생략하거나 기존 로직 유지
+  static async importCases(projectId: string, cases: Partial<TestCase>[], user: User) {
+    // 1. 기존 섹션 조회
+    const existingSections = await TestCaseService.getSections(projectId);
+    const sectionMap = new Map<string, string>(); 
+    
+    // 2. 섹션 매핑 및 생성
+    const uniqueSections = Array.from(new Set(cases.map(c => c.sectionTitle || 'Uncategorized')));
+    
+    for (const secTitle of uniqueSections) {
+      let match = existingSections.find(s => s.title === secTitle);
+      if (!match) {
+        const newSec = await TestCaseService.createSection({ projectId, title: secTitle as string }); 
+        match = newSec;
+      }
+      if (match) sectionMap.set(secTitle as string, match.id);
+    }
+
+    // 3. 케이스 변환
+    const newCases: TestCase[] = cases.map(c => ({
+      id: generateId(),
+      projectId,
+      sectionId: sectionMap.get(c.sectionTitle || 'Uncategorized')!,
+      title: c.title!,
+      precondition: c.precondition || '',
+      steps: c.steps || [],
+      priority: c.priority || 'MEDIUM',
+      type: c.type || 'FUNCTIONAL',
+      authorId: user.id,
+      createdAt: now(),
+      updatedAt: now()
+    }));
+
+    if (USE_SUPABASE) {
+      if (newCases.length > 0) {
+        await supabase.from('testCases').insert(newCases);
+      }
+    } else {
+      const list = getLocal<TestCase>(STORAGE_KEYS.CASES);
+      list.push(...newCases);
+      setLocal(STORAGE_KEYS.CASES, list);
+    }
   }
 }
 
@@ -224,8 +313,20 @@ export class RunService {
   }
 
   static async create(data: Partial<TestRun>): Promise<TestRun> {
-    const newRun = { id: generateId(), ...data, status: 'OPEN', createdAt: now() } as TestRun;
-    if (USE_SUPABASE) await supabase.from('testRuns').insert(newRun);
+    const newRun = { 
+      id: generateId(), 
+      ...data, 
+      status: 'OPEN', 
+      createdAt: now() 
+    } as TestRun;
+
+    if (USE_SUPABASE) {
+      await supabase.from('testRuns').insert(newRun);
+    } else {
+      const list = getLocal<TestRun>(STORAGE_KEYS.RUNS);
+      list.unshift(newRun);
+      setLocal(STORAGE_KEYS.RUNS, list);
+    }
     return newRun;
   }
 
@@ -233,6 +334,9 @@ export class RunService {
     if (USE_SUPABASE) {
       await supabase.from('testResults').delete().eq('runId', runId);
       await supabase.from('testRuns').delete().eq('id', runId);
+    } else {
+      let runs = getLocal<TestRun>(STORAGE_KEYS.RUNS).filter(r => r.id !== runId);
+      setLocal(STORAGE_KEYS.RUNS, runs);
     }
   }
 
@@ -241,16 +345,24 @@ export class RunService {
       const { data } = await supabase.from('testResults').select('*').eq('runId', runId);
       return data || [];
     }
-    return [];
+    return getLocal<TestResult>(STORAGE_KEYS.RESULTS).filter(r => r.runId === runId);
   }
 
   static async saveResult(data: Partial<TestResult>) {
     if (USE_SUPABASE) {
         const { data: existing } = await supabase.from('testResults').select('*').eq('runId', data.runId).eq('caseId', data.caseId).maybeSingle();
         
-        let history = existing?.history || [];
+        let history: ExecutionHistoryItem[] = existing?.history || [];
         if (existing && existing.status !== 'UNTESTED') {
-            history.unshift({ ...existing, history: undefined }); // 현재 상태를 히스토리로
+            history.unshift({
+              status: existing.status,
+              actualResult: existing.actualResult,
+              comment: existing.comment,
+              testerId: existing.testerId,
+              timestamp: existing.timestamp,
+              issues: existing.issues,
+              stepResults: existing.stepResults
+            });
         }
 
         const payload = { ...data, history, timestamp: now() };
@@ -259,6 +371,8 @@ export class RunService {
         } else {
             await supabase.from('testResults').insert({ id: generateId(), ...payload });
         }
+    } else {
+        // LocalStorage Fallback logic can be added here if needed
     }
   }
 }
@@ -269,12 +383,42 @@ export class HistoryService {
         const { data } = await supabase.from('historyLogs').select('*').eq('entityId', entityId).order('timestamp', { ascending: false });
         return data || [];
     }
-    return [];
+    return getLocal<HistoryLog>(STORAGE_KEYS.HISTORY).filter(h => h.entityId === entityId);
   }
 
   static async logChange(oldObj: any, newObj: any, user: User) {
-      // 변경 사항 감지 및 로그 저장 로직 (생략 - 필요 시 추가 구현)
-      // Supabase insert
+    const changes: any[] = [];
+    if (!oldObj) {
+      changes.push({ field: 'ALL', oldVal: null, newVal: 'CREATED' });
+    } else {
+      for (const key of Object.keys(newObj)) {
+        if (key === 'updatedAt' || key === 'createdAt' || key === 'history') continue;
+        if (JSON.stringify(oldObj[key]) !== JSON.stringify(newObj[key])) {
+          changes.push({ field: key, oldVal: oldObj[key], newVal: newObj[key] });
+        }
+      }
+    }
+
+    if (changes.length === 0) return;
+
+    const log: HistoryLog = {
+      id: generateId(),
+      entityType: 'CASE',
+      entityId: newObj.id,
+      action: oldObj ? 'UPDATE' : 'CREATE',
+      modifierId: user.id,
+      modifierName: user.name,
+      changes,
+      timestamp: now()
+    };
+
+    if (USE_SUPABASE) {
+      await supabase.from('historyLogs').insert(log);
+    } else {
+      const list = getLocal<HistoryLog>(STORAGE_KEYS.HISTORY);
+      list.unshift(log);
+      setLocal(STORAGE_KEYS.HISTORY, list);
+    }
   }
 }
 
@@ -340,7 +484,7 @@ export class DashboardService {
       });
 
     } else {
-      // LocalStorage Fallback (필요시 구현, 현재는 0 리턴)
+      // LocalStorage Fallback (Mock)
       return { totalCases: 0, activeRuns: 0, passRate: 0, defectCount: 0, chartData: [] };
     }
 
