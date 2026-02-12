@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import {
     PlayCircle, Trash2, ArrowLeft, ChevronUp, ChevronDown, BarChart2,
-    AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw
+    AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw, Loader2 // [수정] Loader2 추가
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TestRun, TestResult, TestCase, TestStatus, Issue, ExecutionHistoryItem } from '../../types';
@@ -48,6 +48,9 @@ export const TestRunner = () => {
     const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
 
     const [loading, setLoading] = useState(true);
+    
+    // [수정] 버튼 처리를 위한 로딩 상태 추가
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // 실행 목록 로드
     const loadRuns = async () => {
@@ -240,15 +243,24 @@ export const TestRunner = () => {
         autoSave(newStatus, actual, comment, defectLabel, defectUrl, stepResults);
     };
 
+    // [수정] Pass & Next 핸들러 (로딩 및 중복 방지 추가)
     const forcePassAndNext = async () => {
-        if (!selectedRun || !runCases[activeCaseIndex]) return;
-        await autoSave('PASS', actual, comment, defectLabel, defectUrl, stepResults);
+        if (isProcessing || !selectedRun || !runCases[activeCaseIndex]) return;
+        
+        setIsProcessing(true); // 로딩 시작
 
-        if (activeCaseIndex < runCases.length - 1) {
-            const idx = activeCaseIndex + 1;
-            setActiveCaseIndex(idx);
-            loadResultForCase(runCases[idx], runResults);
-            if (selectedRun) updateUrl(selectedRun.id, idx);
+        try {
+            await autoSave('PASS', actual, comment, defectLabel, defectUrl, stepResults);
+
+            if (activeCaseIndex < runCases.length - 1) {
+                const idx = activeCaseIndex + 1;
+                setActiveCaseIndex(idx);
+                loadResultForCase(runCases[idx], runResults);
+                if (selectedRun) updateUrl(selectedRun.id, idx);
+            }
+        } finally {
+            // 사용자 경험을 위해 약간의 지연 후 로딩 해제 (즉각적인 깜빡임 방지)
+            setTimeout(() => setIsProcessing(false), 300);
         }
     };
 
@@ -465,7 +477,7 @@ export const TestRunner = () => {
                 {/* 오른쪽: 상세 및 실행 (개선된 UI) */}
                 <div className="flex-1 flex overflow-hidden relative group bg-gray-100">
 
-                    {/* [NEW] 1. 이전 케이스 이동 버튼 (플로팅) */}
+                    {/* 1. 이전 케이스 이동 버튼 (플로팅) */}
                     <button
                         onClick={handlePrev}
                         disabled={activeCaseIndex === 0}
@@ -475,7 +487,7 @@ export const TestRunner = () => {
                         <ChevronLeft size={32} />
                     </button>
 
-                    {/* [NEW] 2. 다음 케이스 이동 버튼 (플로팅) */}
+                    {/* 2. 다음 케이스 이동 버튼 (플로팅) */}
                     <button
                         onClick={handleNext}
                         disabled={activeCaseIndex === runCases.length - 1}
@@ -605,10 +617,33 @@ export const TestRunner = () => {
                                                 />
                                             </div>
                                         )}
+                                        
+                                        {/* [수정] Pass & Next 버튼 개선 (로딩 상태, 시각적 피드백) */}
                                         {status !== 'FAIL' && (
                                             <div className="h-8 flex items-center justify-end">
-                                                <button onClick={forcePassAndNext} className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded shadow hover:bg-blue-600 flex items-center gap-1 transition-colors">
-                                                    <CheckCircle size={14} /> Pass & Next
+                                                <button
+                                                    onClick={forcePassAndNext}
+                                                    disabled={isProcessing} // 로딩 중 클릭 차단
+                                                    className={`
+                                                        px-4 py-1.5 text-xs font-bold rounded shadow flex items-center gap-2 transition-all duration-200
+                                                        ${isProcessing
+                                                            ? 'bg-blue-400 cursor-not-allowed opacity-80' // 로딩 중 스타일
+                                                            : 'bg-primary hover:bg-blue-700 active:scale-95 cursor-pointer' // 평상시 스타일 (호버, 클릭 효과)
+                                                        }
+                                                        text-white
+                                                    `}
+                                                >
+                                                    {isProcessing ? (
+                                                        <>
+                                                            <Loader2 size={14} className="animate-spin" /> {/* 회전하는 스피너 */}
+                                                            Saving...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <CheckCircle size={14} />
+                                                            Pass & Next
+                                                        </>
+                                                    )}
                                                 </button>
                                             </div>
                                         )}
