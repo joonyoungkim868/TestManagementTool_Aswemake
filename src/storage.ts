@@ -280,7 +280,70 @@ export class HistoryService {
 
 export class DashboardService {
   static async getStats(projectId: string) {
-     // 기존 Supabase 통계 로직 유지 (DashboardService.getStats 참조)
-     return { totalCases: 0, activeRuns: 0, passRate: 0, defectCount: 0, chartData: [] };
+    let totalCases = 0;
+    let activeRuns = 0;
+    let passRate = 0;
+    let defectCount = 0;
+    let chartData: { name: string, passed: number, failed: number }[] = [];
+
+    const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
+    if (USE_SUPABASE) {
+      // 1. 총 테스트 케이스 수
+      const { count } = await supabase
+        .from('testCases')
+        .select('*', { count: 'exact', head: true })
+        .eq('projectId', projectId);
+      totalCases = count || 0;
+
+      // 2. 진행 중인 테스트 실행 (Active Runs)
+      const { data: runs } = await supabase
+        .from('testRuns')
+        .select('id, status')
+        .eq('projectId', projectId);
+      
+      const runList = runs || [];
+      activeRuns = runList.filter(r => r.status === 'OPEN').length;
+
+      // 3. 결과 집계 (Pass Rate, Defects, Chart)
+      const runIds = runList.map(r => r.id);
+      let allResults: TestResult[] = [];
+
+      if (runIds.length > 0) {
+        const { data: results } = await supabase
+          .from('testResults')
+          .select('*')
+          .in('runId', runIds);
+        allResults = results || [];
+      }
+
+      const passedCount = allResults.filter(r => r.status === 'PASS').length;
+      const totalTested = allResults.length;
+      passRate = totalTested > 0 ? Math.round((passedCount / totalTested) * 100) : 0;
+
+      defectCount = allResults.reduce((sum, r) => sum + (r.issues?.length || 0), 0);
+
+      // 차트 데이터 (최근 7일)
+      const days = [...Array(7)].map((_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return formatDate(d);
+      });
+
+      chartData = days.map(day => {
+        const daily = allResults.filter(r => r.timestamp && r.timestamp.startsWith(day));
+        return {
+          name: day.slice(5),
+          passed: daily.filter(r => r.status === 'PASS').length,
+          failed: daily.filter(r => r.status === 'FAIL').length
+        };
+      });
+
+    } else {
+      // LocalStorage Fallback (필요시 구현, 현재는 0 리턴)
+      return { totalCases: 0, activeRuns: 0, passRate: 0, defectCount: 0, chartData: [] };
+    }
+
+    return { totalCases, activeRuns, passRate, defectCount, chartData };
   }
 }
