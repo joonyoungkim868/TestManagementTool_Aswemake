@@ -123,6 +123,7 @@ export const AuthService = {
 export const ProjectService = {
   getAll: async (): Promise<Project[]> => {
     if (USE_SUPABASE) {
+      // 최신순 정렬
       const { data } = await supabase.from('projects').select('*').order('createdAt', { ascending: false });
       return data || [];
     } else {
@@ -146,6 +147,66 @@ export const ProjectService = {
       setLocal(STORAGE_KEYS.PROJECTS, list);
     }
     return newProject;
+  },
+
+  // [추가] 프로젝트 수정 (상태 변경, 제목/설명 수정)
+  update: async (project: Project): Promise<void> => {
+    if (USE_SUPABASE) {
+      await supabase.from('projects').update({
+        title: project.title,
+        description: project.description,
+        status: project.status
+      }).eq('id', project.id);
+    } else {
+      const list = getLocal<Project>(STORAGE_KEYS.PROJECTS);
+      const idx = list.findIndex(p => p.id === project.id);
+      if (idx !== -1) {
+        list[idx] = project;
+        setLocal(STORAGE_KEYS.PROJECTS, list);
+      }
+    }
+  },
+
+  // [추가] 프로젝트 삭제 (Cascade Delete 구현)
+  delete: async (projectId: string): Promise<void> => {
+    if (USE_SUPABASE) {
+      // 1. 결과(Results) 삭제를 위해 해당 프로젝트의 Run ID들을 먼저 조회
+      const { data: runs } = await supabase.from('testRuns').select('id').eq('projectId', projectId);
+      const runIds = runs?.map(r => r.id) || [];
+
+      // 2. 하위 데이터부터 순차 삭제 (FK 제약조건 방지)
+      
+      // 2-1. 테스트 결과(Results) 삭제
+      if (runIds.length > 0) {
+        await supabase.from('testResults').delete().in('runId', runIds);
+      }
+
+      // 2-2. 테스트 실행(Runs) 삭제
+      await supabase.from('testRuns').delete().eq('projectId', projectId);
+
+      // 2-3. 변경 이력(History) 삭제를 위해 Case ID 조회 (선택사항이나 깔끔하게 삭제 추천)
+      const { data: cases } = await supabase.from('testCases').select('id').eq('projectId', projectId);
+      const caseIds = cases?.map(c => c.id) || [];
+      if (caseIds.length > 0) {
+        await supabase.from('historyLogs').delete().in('entityId', caseIds);
+      }
+
+      // 2-4. 테스트 케이스(Cases) 삭제
+      await supabase.from('testCases').delete().eq('projectId', projectId);
+
+      // 2-5. 섹션(Sections) 삭제
+      await supabase.from('sections').delete().eq('projectId', projectId);
+
+      // 3. 마지막으로 프로젝트 본체 삭제
+      await supabase.from('projects').delete().eq('id', projectId);
+
+    } else {
+      // LocalStorage 모드 (단순 필터링)
+      let projects = getLocal<Project>(STORAGE_KEYS.PROJECTS).filter(p => p.id !== projectId);
+      setLocal(STORAGE_KEYS.PROJECTS, projects);
+      
+      // 연관 데이터 정리는 생략 (로컬 데모용이므로)
+    }
   }
 };
 
