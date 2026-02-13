@@ -111,13 +111,8 @@ export const TestRunner = () => {
                 TestCaseService.getSections(project.id)
             ]).then(([allCases, results, sections]) => {
                 const sectionMap = new Map(sections.map(s => [s.id, s.title]));
-                
-                // [✅ 추가] 1. 받아온 전체 케이스를 '시간 -> ID' 순으로 정렬 (순서 고정)
-                const sortedAllCases = allCases.sort((a, b) => {
-                    const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-                    if (timeDiff !== 0) return timeDiff; // 시간 다르면 시간순
-                    return a.id.localeCompare(b.id);     // 시간 같으면 ID 가나다순 (고정)
-                });
+                // 1. 케이스 정렬
+                const sortedAllCases = allCases.sort((a, b) => (a.seq_id || 0) - (b.seq_id || 0));
 
                 // 2. 정렬된 리스트를 기반으로 필터링
                 const casesInRun = sortedAllCases

@@ -40,11 +40,7 @@ export const TestCaseManager = () => {
         ]).then(([s, c]) => {
             setSections(s);
 
-            const sortedCases = c.sort((a, b) => {
-                const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-                if (timeDiff !== 0) return timeDiff;
-                return a.id.localeCompare(b.id);
-            });
+            const sortedCases = c.sort((a, b) => (a.seq_id || 0) - (b.seq_id || 0));
             
             setCases(sortedCases);
             setLoading(false);

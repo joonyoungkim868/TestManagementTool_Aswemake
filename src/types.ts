@@ -64,6 +64,7 @@ export interface TestCase {
   createdAt: string;
   updatedAt: string;
   sectionTitle?: string; // UI용 확장 필드
+  seq_id?: number; // 정렬용 시퀀스 ID
 }
 
 export interface TestRun {
@@ -74,6 +75,7 @@ export interface TestRun {
   assignedToId?: string;
   createdAt: string;
   caseIds: string[];
+  seq_id?: number; // 정렬용 시퀀스 ID
 }
 
 export interface ExecutionHistoryItem {
