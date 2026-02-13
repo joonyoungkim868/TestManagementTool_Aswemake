@@ -65,6 +65,7 @@ export interface TestCase {
   updatedAt: string;
   sectionTitle?: string; // UI용 확장 필드
   seq_id?: number; // 정렬용 시퀀스 ID
+  note?: string; // 비고
 }
 
 export interface TestRun {
