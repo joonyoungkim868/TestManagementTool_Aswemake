@@ -215,27 +215,44 @@ export class TestCaseService {
     return getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.projectId === projectId);
   }
 
-  static async saveCase(data: Partial<TestCase>, user: User): Promise<TestCase> {
+static async saveCase(data: Partial<TestCase>, user: User): Promise<TestCase> {
     const payload = { ...data, updatedAt: now() };
     
     if (!payload.id) {
-       // Create
+       // [Create] 새로운 케이스 생성
        payload.id = generateId();
        payload.createdAt = now();
        payload.authorId = user.id;
        
+       // ✅ 명시적 객체 생성 (note 포함)
+       const newCase: TestCase = {
+          id: payload.id,
+          projectId: data.projectId!,
+          sectionId: data.sectionId!,
+          title: data.title!,
+          precondition: data.precondition || '',
+          steps: data.steps || [],
+          priority: data.priority || 'MEDIUM',
+          type: data.type || 'FUNCTIONAL',
+          note: data.note || '', // 👈 [추가됨] 이 부분이 누락되어 있었습니다!
+          authorId: user.id,
+          createdAt: payload.createdAt,
+          updatedAt: payload.updatedAt,
+          seq_id: data.seq_id // (Optional) 이미 있다면 유지
+       };
+
        if(USE_SUPABASE) {
-          await supabase.from('testCases').insert(payload);
-          await HistoryService.logChange(null, payload, user);
+          await supabase.from('testCases').insert(newCase);
+          await HistoryService.logChange(null, newCase, user);
        } else {
           const list = getLocal<TestCase>(STORAGE_KEYS.CASES);
-          list.push(payload as TestCase);
+          list.push(newCase);
           setLocal(STORAGE_KEYS.CASES, list);
-          HistoryService.logChange(null, payload, user);
+          HistoryService.logChange(null, newCase, user);
        }
-       return payload as TestCase;
+       return newCase;
     } else {
-       // Update
+       // [Update] 기존 케이스 수정
        if(USE_SUPABASE) {
           const { data: oldData } = await supabase.from('testCases').select('*').eq('id', payload.id).single();
           await HistoryService.logChange(oldData, payload, user);
@@ -252,7 +269,7 @@ export class TestCaseService {
        }
        return payload as TestCase;
     }
-  }
+}
 
   static async deleteCase(caseId: string): Promise<void> {
     if (USE_SUPABASE) {
@@ -290,6 +307,7 @@ export class TestCaseService {
       steps: c.steps || [],
       priority: c.priority || 'MEDIUM',
       type: c.type || 'FUNCTIONAL',
+      note: c.note || '',
       authorId: user.id,
       createdAt: now(),
       updatedAt: now()
