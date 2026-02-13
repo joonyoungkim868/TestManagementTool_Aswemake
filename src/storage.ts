@@ -209,7 +209,8 @@ export class TestCaseService {
             .from('testCases')
             .select('*')
             .eq('projectId', projectId)
-            .order('createdAt', { ascending: true }); 
+            .order('createdAt', { ascending: true })
+            .order('id', { ascending: true });
         return data || [];
         }
     return getLocal<TestCase>(STORAGE_KEYS.CASES).filter(c => c.projectId === projectId);

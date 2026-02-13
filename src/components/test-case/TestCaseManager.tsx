@@ -40,12 +40,13 @@ export const TestCaseManager = () => {
         ]).then(([s, c]) => {
             setSections(s);
 
-            // [✅ 수정된 부분] 받아온 데이터를 'createdAt' 기준으로 오름차순(오래된 순) 강제 정렬
-            const sortedCases = c.sort((a, b) => 
-                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
-            setCases(sortedCases);
+            const sortedCases = c.sort((a, b) => {
+                const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+                if (timeDiff !== 0) return timeDiff;
+                return a.id.localeCompare(b.id);
+            });
             
+            setCases(sortedCases);
             setLoading(false);
         });
     };
