@@ -254,7 +254,10 @@ export const TestRunner = () => {
         setIsProcessing(true); // 로딩 시작
 
         try {
-            await autoSave('PASS', actual, comment, defectLabel, defectUrl, stepResults);
+            // ✅ 수정 핵심: 현재 상태가 FAIL이면 FAIL 유지, 아니면 PASS로 강제 변경
+            const nextStatus = status === 'FAIL' ? 'FAIL' : 'PASS';
+
+            await autoSave(nextStatus, actual, comment, defectLabel, defectUrl, stepResults);
 
             if (activeCaseIndex < runCases.length - 1) {
                 const idx = activeCaseIndex + 1;
@@ -263,7 +266,6 @@ export const TestRunner = () => {
                 if (selectedRun) updateUrl(selectedRun.id, idx);
             }
         } finally {
-            // 사용자 경험을 위해 약간의 지연 후 로딩 해제 (즉각적인 깜빡임 방지)
             setTimeout(() => setIsProcessing(false), 300);
         }
     };
