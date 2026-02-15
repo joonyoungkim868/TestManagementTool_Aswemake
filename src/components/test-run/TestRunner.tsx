@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import {
     PlayCircle, Trash2, ArrowLeft, ChevronUp, ChevronDown, BarChart2,
-    AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw, Loader2 // [수정] Loader2 추가
+    AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw, Loader2, FileText
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TestRun, TestResult, TestCase, TestStatus, Issue, ExecutionHistoryItem } from '../../types';
@@ -518,6 +518,13 @@ export const TestRunner = () => {
                                     <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-200 whitespace-pre-wrap flex gap-2">
                                         <AlertOctagon size={16} className="mt-0.5 flex-shrink-0" />
                                         <div><strong>Precondition:</strong> {formatTextWithNumbers(activeCase.precondition)}</div>
+                                    </div>
+                                )}
+                                {activeCase.note && (
+                                    <div className="bg-white p-3 rounded text-sm text-gray-700 border border-gray-200 shadow-sm whitespace-pre-wrap flex gap-2">
+                                        {/* FileText 아이콘 사용 (상단 import에 'FileText'가 없다면 추가 필요) */}
+                                        <FileText size={16} className="mt-0.5 flex-shrink-0 text-gray-400" />
+                                        <div><strong>Note:</strong> {formatTextWithNumbers(activeCase.note)}</div>
                                     </div>
                                 )}
                             </div>

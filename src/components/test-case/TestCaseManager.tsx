@@ -233,6 +233,15 @@ export const TestCaseManager = () => {
                                 <textarea className="w-full border rounded p-2 h-20" value={editForm.precondition || ''} onChange={e => setEditForm({ ...editForm, precondition: e.target.value })} />
                             </div>
                             <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">비고 (Note)</label>
+                                <input 
+                                    className="w-full border rounded p-2 bg-white" 
+                                    value={editForm.note || ''} 
+                                    onChange={e => setEditForm({ ...editForm, note: e.target.value })} 
+                                    placeholder="테스트 관련 참고 사항 (선택)"
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">테스트 단계</label>
                                 <div className="space-y-2">
                                     {editForm.steps?.map((step, idx) => (
@@ -330,6 +339,14 @@ export const TestCaseManager = () => {
                                 <div className="bg-yellow-50 p-4 rounded border border-yellow-100">
                                     <h4 className="font-bold text-sm text-yellow-800 mb-1">사전 조건</h4>
                                     <p className="text-sm text-gray-700 whitespace-pre-wrap">{formatTextWithNumbers(selectedCase.precondition)}</p>
+                                </div>
+                            )}
+                            {selectedCase.note && (
+                                <div className="mt-3 bg-white p-3 rounded border border-gray-200 shadow-sm">
+                                    <h4 className="font-bold text-sm text-gray-600 mb-1 flex items-center gap-1">
+                                        <LinkIcon size={12} className="text-gray-400"/> 비고 (Note)
+                                    </h4>
+                                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{formatTextWithNumbers(selectedCase.note)}</p>
                                 </div>
                             )}
 
