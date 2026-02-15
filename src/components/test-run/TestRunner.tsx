@@ -362,7 +362,6 @@ export const TestRunner = () => {
         RunService.getResults(selectedRun.id).then(setRunResults);
     };
 
-    // [버그 수정 1] Step 변경 시, State를 한 번에 업데이트하여 덮어쓰기 방지
     const handleStepUpdate = async (platform: DevicePlatform, stepId: string, newStatus: TestStatus) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         const currentCase = runCases[activeCaseIndex];
@@ -371,21 +370,40 @@ export const TestRunner = () => {
         const setTargetState = platform === 'iOS' ? setIosResult : platform === 'Android' ? setAosResult : setPcResult;
 
         const currentSteps = targetState.stepResults || [];
+        
+        // 1. 스텝 결과 업데이트 (기존 값 제거 후 추가)
         const updatedSteps = currentSteps.filter(s => s.stepId !== stepId);
         updatedSteps.push({ stepId, status: newStatus });
 
-        // 상태 자동 계산
-        let calculatedStatus: TestStatus = 'PASS';
-        const hasFail = updatedSteps.some(s => s.status === 'FAIL');
-        const hasBlock = updatedSteps.some(s => s.status === 'BLOCK');
+        // 2. 전체 상태 자동 계산 로직
+        const totalSteps = currentCase.steps.length;
+        // 'UNTESTED'가 아닌 유효한 결과만 필터링
+        const validResults = updatedSteps.filter(s => s.status !== 'UNTESTED');
         
-        if (hasFail) calculatedStatus = 'FAIL';
-        else if (hasBlock) calculatedStatus = 'BLOCK';
-        else if (updatedSteps.length < (runCases[activeCaseIndex]?.steps.length || 0)) {
-             // 모든 스텝 미완료 시 로직 (선택적)
+        let calculatedStatus: TestStatus = 'UNTESTED';
+
+        const hasFail = validResults.some(s => s.status === 'FAIL');
+        const hasBlock = validResults.some(s => s.status === 'BLOCK');
+        const hasNA = validResults.some(s => s.status === 'NA'); // [변경] 하나라도 NA가 있는지 확인
+
+        if (hasFail) {
+            calculatedStatus = 'FAIL';
+        } else if (hasBlock) {
+            calculatedStatus = 'BLOCK';
+        } else if (hasNA) {
+            calculatedStatus = 'NA'; // [변경] FAIL/BLOCK이 없고 NA가 하나라도 있으면 전체 NA
+        } else {
+            // FAIL, BLOCK, NA가 없는 경우 (즉, PASS만 있거나 비어있음)
+            if (validResults.length >= totalSteps) {
+                // 모든 스텝이 수행되었고, 위 상태들이 없다면 => PASS
+                calculatedStatus = 'PASS';
+            } else {
+                // 아직 수행되지 않은 스텝이 남았고, 특이사항(Fail/Block/NA)이 없음
+                calculatedStatus = 'UNTESTED';
+            }
         }
 
-        // [중요] 상태 객체를 완성해서 한 번에 저장
+        // 상태 객체를 완성해서 한 번에 저장
         const updatedResult = { 
             ...targetState, 
             stepResults: updatedSteps, 
