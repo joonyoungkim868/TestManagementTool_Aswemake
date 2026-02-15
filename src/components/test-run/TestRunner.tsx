@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import {
     PlayCircle, Trash2, ArrowLeft, ChevronUp, ChevronDown, BarChart2,
-    AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw, Loader2, FileText
+    AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw, Loader2, FileText,
+    Smartphone, Monitor
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TestRun, TestResult, TestCase, TestStatus, Issue, ExecutionHistoryItem } from '../../types';
+import { TestRun, TestResult, TestCase, TestStatus, Issue, ExecutionHistoryItem, DevicePlatform } from '../../types';
 import { RunService, TestCaseService } from '../../storage';
 import { AuthContext } from '../../context/AuthContext';
 import { formatTextWithNumbers } from '../../utils/formatters';
@@ -14,12 +15,290 @@ import { ReportModal } from './ReportModal';
 import { useLayout } from '../layout/MainLayout';
 import { useSearchParams } from 'react-router-dom';
 
-
 // Local type extension for UI display
 interface TestCaseWithSection extends TestCase {
     sectionTitle?: string;
 }
 
+// -------------------------------------------------------------------------
+// [Sub Component] 결과 입력 패널 (하나의 플랫폼에 대한 결과 처리 담당)
+// -------------------------------------------------------------------------
+const TestResultPane = ({
+    runId,
+    caseId,
+    platform, // 'PC' | 'iOS' | 'Android'
+    initialResult,
+    userId,
+    onNext // 'Pass & Next' 클릭 시 부모에게 다음 케이스 이동 요청
+}: {
+    runId: string,
+    caseId: string,
+    platform: DevicePlatform,
+    initialResult: TestResult | undefined,
+    userId: string,
+    onNext: () => void
+}) => {
+    // Local State for Form
+    const [status, setStatus] = useState<TestStatus>('UNTESTED');
+    const [actual, setActual] = useState('');
+    const [comment, setComment] = useState('');
+    const [defectLabel, setDefectLabel] = useState('');
+    const [defectUrl, setDefectUrl] = useState('');
+    const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
+    
+    // History
+    const [historyExpanded, setHistoryExpanded] = useState(false);
+    const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
+    
+    // UI Loading
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    // [Init] 케이스가 변경되거나 초기 데이터가 들어오면 폼 리셋
+    useEffect(() => {
+        if (initialResult) {
+            setStatus(initialResult.status);
+            setActual(initialResult.actualResult || '');
+            setComment(initialResult.comment || '');
+            if (initialResult.issues && initialResult.issues.length > 0) {
+                setDefectLabel(initialResult.issues[0].label);
+                setDefectUrl(initialResult.issues[0].url);
+            } else {
+                setDefectLabel('');
+                setDefectUrl('');
+            }
+            setStepResults(initialResult.stepResults || []);
+            setCurrentResultHistory(initialResult.history || []);
+        } else {
+            // 데이터가 없으면 초기화
+            setStatus('UNTESTED');
+            setActual('');
+            setComment('');
+            setDefectLabel('');
+            setDefectUrl('');
+            setStepResults([]);
+            setCurrentResultHistory([]);
+        }
+        setHistoryExpanded(false);
+    }, [initialResult, caseId]); // caseId가 바뀌면 무조건 리셋
+
+    // [Logic] 자동 저장
+    const autoSave = async (
+        targetStatus: TestStatus,
+        targetActual: string,
+        targetComment: string,
+        targetDefectLabel: string,
+        targetDefectUrl: string,
+        targetStepResults: { stepId: string, status: TestStatus }[]
+    ) => {
+        const issues: Issue[] = [];
+        if (targetDefectLabel && targetDefectUrl) {
+            issues.push({ id: Date.now().toString(), label: targetDefectLabel, url: targetDefectUrl });
+        }
+
+        const payload: Partial<TestResult> = {
+            runId,
+            caseId,
+            device_platform: platform, // [중요] 플랫폼 구분 저장
+            status: targetStatus,
+            actualResult: targetActual,
+            comment: targetComment,
+            testerId: userId,
+            stepResults: targetStepResults,
+            issues
+        };
+
+        await RunService.saveResult(payload);
+        
+        // 히스토리 최신화 (UX용)
+        const freshResults = await RunService.getResults(runId);
+        const fresh = freshResults.find(r => r.caseId === caseId && r.device_platform === platform);
+        if (fresh) setCurrentResultHistory(fresh.history || []);
+    };
+
+    // [Handler] 상태 변경
+    const handleStatusChange = (newStatus: TestStatus) => {
+        setStatus(newStatus);
+        autoSave(newStatus, actual, comment, defectLabel, defectUrl, stepResults);
+    };
+
+    // [Handler] 스텝 결과 변경
+    const handleStepStatusChange = (stepId: string, newStepStatus: TestStatus) => {
+        const newStepResults = stepResults.filter(sr => sr.stepId !== stepId);
+        newStepResults.push({ stepId, status: newStepStatus });
+        setStepResults(newStepResults);
+
+        let calculatedStatus: TestStatus = 'PASS';
+        const hasFail = newStepResults.some(s => s.status === 'FAIL');
+        const hasBlock = newStepResults.some(s => s.status === 'BLOCK');
+
+        if (hasFail) calculatedStatus = 'FAIL';
+        else if (hasBlock) calculatedStatus = 'BLOCK';
+
+        setStatus(calculatedStatus);
+        autoSave(calculatedStatus, actual, comment, defectLabel, defectUrl, newStepResults);
+    };
+
+    // [Handler] Pass & Next
+    const forcePassAndNext = async () => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            const nextStatus = status === 'FAIL' ? 'FAIL' : 'PASS';
+            await autoSave(nextStatus, actual, comment, defectLabel, defectUrl, stepResults);
+            onNext(); // 부모에게 다음 케이스 이동 요청
+        } finally {
+            setTimeout(() => setIsProcessing(false), 300);
+        }
+    };
+
+    const getStatusColor = (s: TestStatus) => {
+        switch (s) {
+            case 'PASS': return 'bg-green-100 text-green-700 border-green-500';
+            case 'FAIL': return 'bg-red-100 text-red-700 border-red-500';
+            case 'BLOCK': return 'bg-gray-800 text-white border-gray-900';
+            case 'NA': return 'bg-orange-100 text-orange-700 border-orange-500';
+            default: return 'bg-gray-100 text-gray-500 border-gray-300';
+        }
+    };
+
+    const fullHistoryTimeline = status === 'UNTESTED' ? [] : [
+        {
+            status,
+            actualResult: actual,
+            comment,
+            testerId: userId || 'unknown',
+            timestamp: new Date().toISOString(),
+            issues: (defectLabel && defectUrl) ? [{ id: 'temp', label: defectLabel, url: defectUrl }] : [],
+            stepResults,
+            isCurrent: true
+        },
+        ...currentResultHistory.map(h => ({ ...h, isCurrent: false }))
+    ];
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* 플랫폼 헤더 */}
+            <div className={`font-bold text-sm mb-2 flex items-center gap-2 py-1 px-2 rounded-t-lg border-b-2 
+                ${platform === 'iOS' ? 'bg-gray-50 text-gray-800 border-gray-300' : 
+                  platform === 'Android' ? 'bg-green-50 text-green-800 border-green-300' : 
+                  'bg-blue-50 text-blue-800 border-blue-300'}`}>
+                {platform === 'iOS' && <span className="text-lg">🍎</span>}
+                {platform === 'Android' && <span className="text-lg">🤖</span>}
+                {platform === 'PC' && <span className="text-lg">🖥️</span>}
+                {platform === 'PC' ? 'WEB' : platform} Result
+            </div>
+
+            <div className={`flex-1 rounded-b-xl p-4 transition-colors shadow-sm border-2 ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]} bg-white overflow-y-auto`}>
+                {/* 상단 버튼 그룹 */}
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm"><PlayCircle size={18} /> Test Result</h3>
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-lg scale-90 origin-right">
+                        {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
+                            <button
+                                key={s}
+                                onClick={() => handleStatusChange(s)}
+                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${status === s ? getStatusColor(s) + ' shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}
+                            >
+                                {s}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 입력 필드들 */}
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Actual Result</label>
+                        <textarea
+                            className="w-full border rounded p-2 text-sm h-20 resize-none focus:ring-1 focus:ring-primary focus:border-primary"
+                            placeholder="실제 결과 입력..."
+                            value={actual}
+                            onChange={e => setActual(e.target.value)}
+                            onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Comment</label>
+                        <input
+                            className="w-full border rounded p-2 text-sm h-9 focus:ring-1 focus:ring-primary focus:border-primary"
+                            placeholder="비고 사항..."
+                            value={comment}
+                            onChange={e => setComment(e.target.value)}
+                            onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                        />
+                    </div>
+
+                    {status === 'FAIL' && (
+                        <div className="flex gap-2 animate-in fade-in slide-in-from-top-1">
+                            <div className="relative flex-1">
+                                <Bug size={14} className="absolute left-2 top-2.5 text-red-400" />
+                                <input
+                                    className="w-full border border-red-200 bg-red-50 rounded pl-7 p-1.5 text-xs h-9 text-red-800 placeholder-red-300 focus:ring-1 focus:ring-red-500"
+                                    placeholder="Issue Key"
+                                    value={defectLabel}
+                                    onChange={e => setDefectLabel(e.target.value)}
+                                    onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                                />
+                            </div>
+                            <input
+                                className="flex-[2] border border-red-200 bg-red-50 rounded p-1.5 text-xs h-9 text-red-800 placeholder-red-300 focus:ring-1 focus:ring-red-500"
+                                placeholder="Issue URL..."
+                                value={defectUrl}
+                                onChange={e => setDefectUrl(e.target.value)}
+                                onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                {/* Pass & Next 버튼 */}
+                <div className="mt-4 flex justify-end">
+                     <button
+                        onClick={forcePassAndNext}
+                        disabled={isProcessing}
+                        className={`
+                            px-4 py-2 text-xs font-bold rounded shadow flex items-center gap-2 transition-all duration-200
+                            ${isProcessing ? 'bg-blue-400 cursor-not-allowed opacity-80' : 'bg-primary hover:bg-blue-700 active:scale-95 cursor-pointer'}
+                            text-white
+                        `}
+                    >
+                        {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                        {status === 'FAIL' ? 'Save & Next' : 'Pass & Next'}
+                    </button>
+                </div>
+            </div>
+
+             {/* 실행 이력 (최소화) */}
+             <div className="border-t pt-2 mt-2">
+                <button
+                    onClick={() => setHistoryExpanded(!historyExpanded)}
+                    className="w-full flex justify-between items-center text-gray-400 font-bold hover:text-gray-600 p-1 text-xs"
+                >
+                    <span className="flex items-center gap-2"><RotateCcw size={14} /> History</span>
+                    {historyExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+
+                {historyExpanded && (
+                    <div className="mt-2 space-y-2 pl-2 max-h-32 overflow-y-auto">
+                        {fullHistoryTimeline.length === 0 && <div className="text-center text-gray-300 text-xs py-2">No history.</div>}
+                        {fullHistoryTimeline.map((h, idx) => (
+                            <div key={idx} className="flex gap-2 items-start text-xs text-gray-500">
+                                <span className={`px-1.5 rounded font-bold ${h.status === 'PASS' ? 'bg-green-100 text-green-700' : h.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>{h.status}</span>
+                                <span className="truncate">{new Date(h.timestamp).toLocaleDateString()}</span>
+                                {h.isCurrent && <span className="text-blue-500 font-bold text-[10px]">(Cur)</span>}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+// -------------------------------------------------------------------------
+// [Main Component] Test Runner
+// -------------------------------------------------------------------------
 export const TestRunner = () => {
     const { activeProject, isLoading: isProjectLoading } = useLayout();
     const project = activeProject;
@@ -36,22 +315,8 @@ export const TestRunner = () => {
     const [isDashboardOpen, setDashboardOpen] = useState(true);
     const [runStats, setRunStats] = useState<Record<string, TestResult[]>>({});
 
-    // 폼 상태
-    const [status, setStatus] = useState<TestStatus>('UNTESTED');
-    const [actual, setActual] = useState('');
-    const [comment, setComment] = useState('');
-    const [defectLabel, setDefectLabel] = useState('');
-    const [defectUrl, setDefectUrl] = useState('');
-    const [stepResults, setStepResults] = useState<{ stepId: string, status: TestStatus }[]>([]);
-
-    const [historyExpanded, setHistoryExpanded] = useState(false);
-    const [currentResultHistory, setCurrentResultHistory] = useState<ExecutionHistoryItem[]>([]);
-
     const [loading, setLoading] = useState(true);
     
-    // [수정] 버튼 처리를 위한 로딩 상태 추가
-    const [isProcessing, setIsProcessing] = useState(false);
-
     // 실행 목록 로드
     const loadRuns = async () => {
         if (!project) return;
@@ -111,7 +376,7 @@ export const TestRunner = () => {
                 TestCaseService.getSections(project.id)
             ]).then(([allCases, results, sections]) => {
                 const sectionMap = new Map(sections.map(s => [s.id, s.title]));
-                // 1. 케이스 정렬
+                // 1. 케이스 정렬 (seq_id 기준)
                 const sortedAllCases = allCases.sort((a, b) => (a.seq_id || 0) - (b.seq_id || 0));
 
                 // 2. 정렬된 리스트를 기반으로 필터링
@@ -124,8 +389,7 @@ export const TestRunner = () => {
 
                 let safeIndex = activeCaseIndex;
                 if (safeIndex >= casesInRun.length) safeIndex = 0;
-
-                loadResultForCase(casesInRun[safeIndex], results);
+                setActiveCaseIndex(safeIndex);
             });
         }
     }, [selectedRun]);
@@ -142,7 +406,6 @@ export const TestRunner = () => {
         if (activeCaseIndex > 0) {
             const idx = activeCaseIndex - 1;
             setActiveCaseIndex(idx);
-            loadResultForCase(runCases[idx], runResults);
             if (selectedRun) updateUrl(selectedRun.id, idx);
         }
     };
@@ -151,122 +414,7 @@ export const TestRunner = () => {
         if (activeCaseIndex < runCases.length - 1) {
             const idx = activeCaseIndex + 1;
             setActiveCaseIndex(idx);
-            loadResultForCase(runCases[idx], runResults);
             if (selectedRun) updateUrl(selectedRun.id, idx);
-        }
-    };
-
-    const loadResultForCase = (c: TestCase | undefined, results: TestResult[]) => {
-        if (!c) return;
-        const res = results.find(r => r.caseId === c.id);
-        if (res) {
-            setStatus(res.status);
-            setActual(res.actualResult);
-            setComment(res.comment);
-            if (res.issues && res.issues.length > 0) {
-                setDefectLabel(res.issues[0].label);
-                setDefectUrl(res.issues[0].url);
-            } else {
-                setDefectLabel('');
-                setDefectUrl('');
-            }
-            setStepResults(res.stepResults || []);
-            setCurrentResultHistory(res.history || []);
-        } else {
-            setStatus('UNTESTED');
-            setActual('');
-            setComment('');
-            setDefectLabel('');
-            setDefectUrl('');
-            setStepResults([]);
-            setCurrentResultHistory([]);
-        }
-        setHistoryExpanded(false);
-    };
-
-    const autoSave = async (
-        targetStatus: TestStatus,
-        targetActual: string,
-        targetComment: string,
-        targetDefectLabel: string,
-        targetDefectUrl: string,
-        targetStepResults: { stepId: string, status: TestStatus }[]
-    ) => {
-        if (!selectedRun || !runCases[activeCaseIndex] || !user) return;
-
-        const currentCase = runCases[activeCaseIndex];
-        const issues: Issue[] = [];
-        if (targetDefectLabel && targetDefectUrl) {
-            issues.push({ id: Date.now().toString(), label: targetDefectLabel, url: targetDefectUrl });
-        }
-
-        const payload: Partial<TestResult> = {
-            runId: selectedRun.id,
-            caseId: currentCase.id,
-            status: targetStatus,
-            actualResult: targetActual,
-            comment: targetComment,
-            testerId: user.id,
-            stepResults: targetStepResults,
-            issues
-        };
-
-        await RunService.saveResult(payload);
-
-        const updatedRes = { ...payload, id: 'temp' } as TestResult;
-        setRunResults(prev => [...prev.filter(r => r.caseId !== currentCase.id), updatedRes]);
-
-        const currentRunStats = runStats[selectedRun.id] || [];
-        const newStats = [...currentRunStats.filter(r => r.caseId !== currentCase.id), updatedRes];
-        setRunStats(prev => ({ ...prev, [selectedRun.id]: newStats }));
-
-        RunService.getResults(selectedRun.id).then(results => {
-            const fresh = results.find(r => r.caseId === currentCase.id);
-            if (fresh) setCurrentResultHistory(fresh.history || []);
-        });
-    };
-
-    const handleStepStatusChange = (stepId: string, newStepStatus: TestStatus) => {
-        const newStepResults = stepResults.filter(sr => sr.stepId !== stepId);
-        newStepResults.push({ stepId, status: newStepStatus });
-        setStepResults(newStepResults);
-
-        let calculatedStatus: TestStatus = 'PASS';
-        const hasFail = newStepResults.some(s => s.status === 'FAIL');
-        const hasBlock = newStepResults.some(s => s.status === 'BLOCK');
-
-        if (hasFail) calculatedStatus = 'FAIL';
-        else if (hasBlock) calculatedStatus = 'BLOCK';
-
-        setStatus(calculatedStatus);
-        autoSave(calculatedStatus, actual, comment, defectLabel, defectUrl, newStepResults);
-    };
-
-    const handleStatusChange = (newStatus: TestStatus) => {
-        setStatus(newStatus);
-        autoSave(newStatus, actual, comment, defectLabel, defectUrl, stepResults);
-    };
-
-    // [수정] Pass & Next 핸들러 (로딩 및 중복 방지 추가)
-    const forcePassAndNext = async () => {
-        if (isProcessing || !selectedRun || !runCases[activeCaseIndex]) return;
-        
-        setIsProcessing(true); // 로딩 시작
-
-        try {
-            // ✅ 수정 핵심: 현재 상태가 FAIL이면 FAIL 유지, 아니면 PASS로 강제 변경
-            const nextStatus = status === 'FAIL' ? 'FAIL' : 'PASS';
-
-            await autoSave(nextStatus, actual, comment, defectLabel, defectUrl, stepResults);
-
-            if (activeCaseIndex < runCases.length - 1) {
-                const idx = activeCaseIndex + 1;
-                setActiveCaseIndex(idx);
-                loadResultForCase(runCases[idx], runResults);
-                if (selectedRun) updateUrl(selectedRun.id, idx);
-            }
-        } finally {
-            setTimeout(() => setIsProcessing(false), 300);
         }
     };
 
@@ -280,33 +428,7 @@ export const TestRunner = () => {
         return { total, pass, fail, block, untested };
     };
 
-    const getUserName = (id: string) => users.find(u => u.id === id)?.name || id;
-
     const stats = getRunStats();
-
-    const getStatusColor = (s: TestStatus) => {
-        switch (s) {
-            case 'PASS': return 'bg-green-100 text-green-700 border-green-500';
-            case 'FAIL': return 'bg-red-100 text-red-700 border-red-500';
-            case 'BLOCK': return 'bg-gray-800 text-white border-gray-900';
-            case 'NA': return 'bg-orange-100 text-orange-700 border-orange-500';
-            default: return 'bg-gray-100 text-gray-500 border-gray-300';
-        }
-    };
-
-    const fullHistoryTimeline: (ExecutionHistoryItem & { isCurrent?: boolean })[] = status === 'UNTESTED' ? [] : [
-        {
-            status,
-            actualResult: actual,
-            comment,
-            testerId: user?.id || 'unknown',
-            timestamp: new Date().toISOString(),
-            issues: (defectLabel && defectUrl) ? [{ id: 'temp', label: defectLabel, url: defectUrl }] : [],
-            stepResults,
-            isCurrent: true
-        },
-        ...currentResultHistory.map(h => ({ ...h, isCurrent: false }))
-    ];
 
     if (isProjectLoading) return <LoadingSpinner />;
     if (!project) return <div className="p-8 text-center text-gray-500">프로젝트를 찾을 수 없습니다.</div>;
@@ -368,6 +490,11 @@ export const TestRunner = () => {
     const activeCase = runCases[activeCaseIndex];
     if (!activeCase) return <div>Data Error</div>;
 
+    // [Helper] 현재 케이스에 대한 결과 조회
+    const getResultForPlatform = (targetPlatform: DevicePlatform) => {
+        return runResults.find(r => r.caseId === activeCase.id && (r.device_platform === targetPlatform || (!r.device_platform && targetPlatform === 'PC')));
+    };
+
     return (
         <div className="flex flex-col h-full bg-gray-100">
             {/* 헤더 */}
@@ -379,24 +506,14 @@ export const TestRunner = () => {
 
                     <div>
                         <h2 className="font-bold text-xl text-gray-900 leading-tight">{selectedRun.title}</h2>
-
-                        {/* 상단 네비게이션 및 통계 바 */}
                         <div className="flex items-center gap-3 mt-1.5">
                             <button
                                 onClick={() => setDashboardOpen(!isDashboardOpen)}
                                 className="flex items-center gap-2 px-3 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-sm font-bold text-gray-700 transition"
-                                title="통계 대시보드 열기/접기"
                             >
                                 <span>{activeCaseIndex + 1} / {runCases.length}</span>
                                 {isDashboardOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             </button>
-
-                            <div className="h-4 w-px bg-gray-300 mx-1"></div>
-                            <div className="w-32 h-2.5 bg-gray-200 rounded-full overflow-hidden flex shadow-inner">
-                                <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${(stats.pass / stats.total) * 100}%` }} title={`Pass: ${stats.pass}`} />
-                                <div className="h-full bg-red-500 transition-all duration-500" style={{ width: `${(stats.fail / stats.total) * 100}%` }} title={`Fail: ${stats.fail}`} />
-                                <div className="h-full bg-gray-800 transition-all duration-500" style={{ width: `${(stats.block / stats.total) * 100}%` }} title={`Block: ${stats.block}`} />
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -435,7 +552,7 @@ export const TestRunner = () => {
                                 </PieChart>
                             </ResponsiveContainer>
                             <div className="absolute inset-0 flex items-center justify-center font-bold text-gray-600 text-xs">
-                                {Math.round((stats.pass / stats.total) * 100) || 0}%
+                                {Math.round((stats.pass / (stats.total || 1)) * 100) || 0}%
                             </div>
                         </div>
                         <div className="grid grid-cols-4 gap-4">
@@ -465,16 +582,31 @@ export const TestRunner = () => {
                 {/* 왼쪽: 케이스 목록 리스트 */}
                 <div className="w-72 bg-white border-r overflow-y-auto">
                     {runCases.map((c, idx) => {
-                        const res = runResults.find(r => r.caseId === c.id);
-                        const status = res?.status || 'UNTESTED';
+                        const pcRes = runResults.find(r => r.caseId === c.id && (!r.device_platform || r.device_platform === 'PC'));
+                        const iosRes = runResults.find(r => r.caseId === c.id && r.device_platform === 'iOS');
+                        const aosRes = runResults.find(r => r.caseId === c.id && r.device_platform === 'Android');
+                        
+                        // 대표 상태 계산 (하나라도 Fail이면 Fail, 모두 Pass면 Pass)
+                        let status: TestStatus = 'UNTESTED';
+                        if (c.platform_type === 'APP') {
+                             if (iosRes?.status === 'FAIL' || aosRes?.status === 'FAIL') status = 'FAIL';
+                             else if (iosRes?.status === 'PASS' && aosRes?.status === 'PASS') status = 'PASS';
+                             else if (iosRes?.status || aosRes?.status) status = iosRes?.status || aosRes?.status || 'UNTESTED';
+                        } else {
+                             status = pcRes?.status || 'UNTESTED';
+                        }
+
                         return (
                             <div
                                 key={c.id}
-                                onClick={() => { setActiveCaseIndex(idx); loadResultForCase(c, runResults); updateUrl(selectedRun.id, idx); }}
+                                onClick={() => { setActiveCaseIndex(idx); updateUrl(selectedRun.id, idx); }}
                                 className={`p-3 border-b cursor-pointer flex items-center gap-2 text-sm hover:bg-gray-50 ${activeCaseIndex === idx ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}
                             >
                                 <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'PASS' ? 'bg-green-500' : status === 'FAIL' ? 'bg-red-500' : status === 'BLOCK' ? 'bg-gray-800' : 'bg-gray-300'}`} />
-                                <span className="truncate flex-1">{c.title}</span>
+                                <div className="flex flex-col flex-1 min-w-0">
+                                   <span className="truncate">{c.title}</span>
+                                   {c.platform_type === 'APP' && <span className="text-[10px] text-gray-400 flex gap-1"><Smartphone size={10}/> APP</span>}
+                                </div>
                             </div>
                         );
                     })}
@@ -483,35 +615,32 @@ export const TestRunner = () => {
                 {/* 오른쪽: 상세 및 실행 (개선된 UI) */}
                 <div className="flex-1 flex overflow-hidden relative group bg-gray-100">
 
-                    {/* 1. 이전 케이스 이동 버튼 (플로팅) */}
+                    {/* 플로팅 이동 버튼 */}
                     <button
                         onClick={handlePrev}
                         disabled={activeCaseIndex === 0}
                         className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-12 h-12 bg-white rounded-full shadow-lg border border-gray-200 text-gray-400 flex items-center justify-center hover:text-primary hover:border-primary hover:scale-110 transition-all disabled:opacity-0 disabled:pointer-events-none"
-                        title="이전 케이스 (Previous)"
                     >
                         <ChevronLeft size={32} />
                     </button>
-
-                    {/* 2. 다음 케이스 이동 버튼 (플로팅) */}
                     <button
                         onClick={handleNext}
                         disabled={activeCaseIndex === runCases.length - 1}
                         className="absolute right-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 bg-white rounded-full shadow-lg border border-gray-200 text-gray-400 flex items-center justify-center hover:text-primary hover:border-primary hover:scale-110 transition-all disabled:opacity-0 disabled:pointer-events-none"
-                        title="다음 케이스 (Next)"
                     >
                         <ChevronRight size={32} />
                     </button>
 
-                    {/* 메인 컨텐츠 영역 (스크롤 가능) */}
+                    {/* 메인 컨텐츠 영역 */}
                     <div className="flex-1 overflow-y-auto px-12 py-6">
-                        <div className="max-w-5xl mx-auto space-y-4">
+                        <div className="max-w-6xl mx-auto space-y-4">
 
                             {/* A. 케이스 헤더 정보 */}
                             <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
                                 <div className="flex gap-2 mb-2">
                                     <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-bold text-gray-600 border">{activeCase.sectionTitle || 'General'}</span>
                                     <span className={`px-2 py-0.5 rounded text-xs font-bold border ${activeCase.priority === 'HIGH' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{activeCase.priority} Priority</span>
+                                    {activeCase.platform_type === 'APP' && <span className="px-2 py-0.5 rounded text-xs font-bold border bg-purple-50 text-purple-600 border-purple-100 flex items-center gap-1"><Smartphone size={10}/> Mobile App</span>}
                                 </div>
                                 <h1 className="text-2xl font-bold text-gray-900 mb-2">{activeCase.title}</h1>
                                 {activeCase.precondition && (
@@ -521,177 +650,65 @@ export const TestRunner = () => {
                                     </div>
                                 )}
                                 {activeCase.note && (
-                                    <div className="bg-white p-3 rounded text-sm text-gray-700 border border-gray-200 shadow-sm whitespace-pre-wrap flex gap-2">
-                                        {/* FileText 아이콘 사용 (상단 import에 'FileText'가 없다면 추가 필요) */}
+                                    <div className="mt-2 bg-white p-3 rounded text-sm text-gray-700 border border-gray-200 shadow-sm whitespace-pre-wrap flex gap-2">
                                         <FileText size={16} className="mt-0.5 flex-shrink-0 text-gray-400" />
                                         <div><strong>Note:</strong> {formatTextWithNumbers(activeCase.note)}</div>
                                     </div>
                                 )}
                             </div>
 
-                            {/* B. 테스트 스텝 (시각적 강조) */}
+                            {/* B. 테스트 스텝 */}
                             <div className="space-y-3">
-                                {activeCase.steps.map((step, i) => {
-                                    const stepRes = stepResults.find(sr => sr.stepId === step.id)?.status || 'UNTESTED';
-                                    return (
-                                        <div key={i} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-                                            <div className="flex flex-col items-center gap-2">
-                                                <div className="w-8 h-8 rounded-full bg-gray-800 text-white flex items-center justify-center font-bold text-sm shadow-sm">{i + 1}</div>
+                                {activeCase.steps.map((step, i) => (
+                                    <div key={i} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
+                                        <div className="flex flex-col items-center gap-2">
+                                            <div className="w-8 h-8 rounded-full bg-gray-800 text-white flex items-center justify-center font-bold text-sm shadow-sm">{i + 1}</div>
+                                        </div>
+                                        <div className="flex-1 grid grid-cols-2 gap-6">
+                                            <div className="space-y-1">
+                                                <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Action</div>
+                                                <div className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{formatTextWithNumbers(step.step)}</div>
                                             </div>
-
-                                            <div className="flex-1 grid grid-cols-2 gap-6">
-                                                <div className="space-y-1">
-                                                    <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Action</div>
-                                                    <div className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{formatTextWithNumbers(step.step)}</div>
-                                                </div>
-                                                <div className="space-y-1 pl-6 border-l border-gray-100">
-                                                    <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">Expected Result</div>
-                                                    <div className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{formatTextWithNumbers(step.expected)}</div>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex flex-col gap-1 w-16 flex-shrink-0 justify-center">
-                                                <button
-                                                    onClick={() => handleStepStatusChange(step.id, 'PASS')}
-                                                    className={`h-8 text-[10px] font-bold rounded border transition-all ${stepRes === 'PASS' ? 'bg-green-500 text-white border-green-600 shadow-sm' : 'bg-white text-gray-300 hover:text-green-600 hover:border-green-200'}`}
-                                                >PASS</button>
-                                                <button
-                                                    onClick={() => handleStepStatusChange(step.id, 'FAIL')}
-                                                    className={`h-8 text-[10px] font-bold rounded border transition-all ${stepRes === 'FAIL' ? 'bg-red-500 text-white border-red-600 shadow-sm' : 'bg-white text-gray-300 hover:text-red-600 hover:border-red-200'}`}
-                                                >FAIL</button>
+                                            <div className="space-y-1 pl-6 border-l border-gray-100">
+                                                <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">Expected Result</div>
+                                                <div className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{formatTextWithNumbers(step.expected)}</div>
                                             </div>
                                         </div>
-                                    )
-                                })}
+                                    </div>
+                                ))}
                             </div>
 
-                            {/* C. 결과 입력 섹션 (Compact Mode) */}
-                            <div className={`rounded-xl p-4 transition-colors shadow-sm border-2 ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]} bg-white`}>
-                                <div className="flex items-center justify-between mb-3">
-                                    <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm"><PlayCircle size={18} /> Test Result</h3>
-                                    <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-                                        {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
-                                            <button
-                                                key={s}
-                                                onClick={() => handleStatusChange(s)}
-                                                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${status === s ? getStatusColor(s) + ' shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}
-                                            >
-                                                {s}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* 입력 필드 (Grid Layout) */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    {/* 1. Actual Result */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">Actual Result</label>
-                                        <textarea
-                                            className="w-full border rounded p-2 text-sm h-16 resize-none focus:ring-1 focus:ring-primary focus:border-primary"
-                                            placeholder="실제 결과 입력..."
-                                            value={actual}
-                                            onChange={e => setActual(e.target.value)}
-                                            onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
+                            {/* C. 결과 입력 섹션 (분기 처리) */}
+                            <div className="mt-6">
+                                {activeCase.platform_type === 'APP' ? (
+                                    <div className="grid grid-cols-2 gap-6 h-[500px]">
+                                        <TestResultPane 
+                                            runId={selectedRun.id}
+                                            caseId={activeCase.id}
+                                            platform="iOS"
+                                            initialResult={getResultForPlatform('iOS')}
+                                            userId={user?.id || ''}
+                                            onNext={handleNext}
+                                        />
+                                        <TestResultPane 
+                                            runId={selectedRun.id}
+                                            caseId={activeCase.id}
+                                            platform="Android"
+                                            initialResult={getResultForPlatform('Android')}
+                                            userId={user?.id || ''}
+                                            onNext={handleNext}
                                         />
                                     </div>
-
-                                    {/* 2. Comment & Defect */}
-                                    <div className="space-y-2">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 mb-1">Comment</label>
-                                            <input
-                                                className="w-full border rounded p-2 text-sm h-8 focus:ring-1 focus:ring-primary focus:border-primary"
-                                                placeholder="비고 사항..."
-                                                value={comment}
-                                                onChange={e => setComment(e.target.value)}
-                                                onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                                            />
-                                        </div>
-
-                                        {status === 'FAIL' && (
-                                            <div className="flex gap-2 animate-in fade-in slide-in-from-top-1">
-                                                <div className="relative flex-1">
-                                                    <Bug size={14} className="absolute left-2 top-2 text-red-400" />
-                                                    <input
-                                                        className="w-full border border-red-200 bg-red-50 rounded pl-7 p-1.5 text-xs h-8 text-red-800 placeholder-red-300 focus:ring-1 focus:ring-red-500"
-                                                        placeholder="Issue Key (QA-123)"
-                                                        value={defectLabel}
-                                                        onChange={e => setDefectLabel(e.target.value)}
-                                                        onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                                                    />
-                                                </div>
-                                                <input
-                                                    className="flex-[2] border border-red-200 bg-red-50 rounded p-1.5 text-xs h-8 text-red-800 placeholder-red-300 focus:ring-1 focus:ring-red-500"
-                                                    placeholder="Issue URL..."
-                                                    value={defectUrl}
-                                                    onChange={e => setDefectUrl(e.target.value)}
-                                                    onBlur={() => autoSave(status, actual, comment, defectLabel, defectUrl, stepResults)}
-                                                />
-                                            </div>
-                                        )}
-                                        
-                                        {/* [수정] Pass & Next 버튼 개선 (로딩 상태, 시각적 피드백) */}
-                                        {status !== 'FAIL' && (
-                                            <div className="h-8 flex items-center justify-end">
-                                                <button
-                                                    onClick={forcePassAndNext}
-                                                    disabled={isProcessing} // 로딩 중 클릭 차단
-                                                    className={`
-                                                        px-4 py-1.5 text-xs font-bold rounded shadow flex items-center gap-2 transition-all duration-200
-                                                        ${isProcessing
-                                                            ? 'bg-blue-400 cursor-not-allowed opacity-80' // 로딩 중 스타일
-                                                            : 'bg-primary hover:bg-blue-700 active:scale-95 cursor-pointer' // 평상시 스타일 (호버, 클릭 효과)
-                                                        }
-                                                        text-white
-                                                    `}
-                                                >
-                                                    {isProcessing ? (
-                                                        <>
-                                                            <Loader2 size={14} className="animate-spin" /> {/* 회전하는 스피너 */}
-                                                            Saving...
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <CheckCircle size={14} />
-                                                            Pass & Next
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {status === 'FAIL' && (
-                                    <div className="mt-2 flex justify-end">
-                                        <button onClick={forcePassAndNext} className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded shadow hover:bg-blue-600 flex items-center gap-1">
-                                            <CheckCircle size={14} /> Save & Next
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* D. 실행 이력 (최소화) */}
-                            <div className="border-t pt-2">
-                                <button
-                                    onClick={() => setHistoryExpanded(!historyExpanded)}
-                                    className="w-full flex justify-between items-center text-gray-400 font-bold hover:text-gray-600 p-1 text-xs"
-                                >
-                                    <span className="flex items-center gap-2"><RotateCcw size={14} /> Execution History</span>
-                                    {historyExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                </button>
-
-                                {historyExpanded && (
-                                    <div className="mt-2 space-y-2 pl-2">
-                                        {fullHistoryTimeline.length === 0 && <div className="text-center text-gray-300 text-xs py-2">No history.</div>}
-                                        {fullHistoryTimeline.map((h, idx) => (
-                                            <div key={idx} className="flex gap-2 items-start text-xs text-gray-500">
-                                                <span className={`px-1.5 rounded font-bold ${h.status === 'PASS' ? 'bg-green-100 text-green-700' : h.status === 'FAIL' ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>{h.status}</span>
-                                                <span>{new Date(h.timestamp).toLocaleDateString()} by {getUserName(h.testerId)}</span>
-                                                {h.isCurrent && <span className="text-blue-500 font-bold">(Current)</span>}
-                                            </div>
-                                        ))}
+                                ) : (
+                                    <div className="h-[500px]">
+                                        <TestResultPane 
+                                            runId={selectedRun.id}
+                                            caseId={activeCase.id}
+                                            platform="PC"
+                                            initialResult={getResultForPlatform('PC')}
+                                            userId={user?.id || ''}
+                                            onNext={handleNext}
+                                        />
                                     </div>
                                 )}
                             </div>
