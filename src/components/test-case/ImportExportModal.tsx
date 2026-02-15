@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
-import { ArrowRightLeft, FileText, Bug, Download, AlertTriangle, Upload } from 'lucide-react';
+import { ArrowRightLeft, FileText, Bug, Download, AlertTriangle, Upload, Smartphone, Monitor } from 'lucide-react';
 import { TestCase, Section, Project } from '@/src/types';
 import { TestCaseService } from '@/src/storage';
 import { AuthContext } from '../../context/AuthContext';
@@ -14,10 +14,14 @@ export const ImportExportModal = ({
     const { user } = useContext(AuthContext);
     const [tab, setTab] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
     const [step, setStep] = useState<'UPLOAD' | 'MAP'>('UPLOAD');
+    
+    // [New] Import 모드 상태 (WEB: 단일 / APP: iOS+Android)
+    const [importMode, setImportMode] = useState<'WEB' | 'APP'>('WEB');
+
     const [csvMatrix, setCsvMatrix] = useState<string[][]>([]);
     const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
     const [mapping, setMapping] = useState<Record<string, number>>({});
-    const [headerRowIndex, setHeaderRowIndex] = useState(0); // Track detected header row
+    const [headerRowIndex, setHeaderRowIndex] = useState(0); 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [importing, setImporting] = useState(false);
 
@@ -39,6 +43,7 @@ export const ImportExportModal = ({
             setCsvMatrix([]);
             setMapping({});
             setHeaderRowIndex(0);
+            setImportMode('WEB'); // 초기화
         }
     }, [isOpen]);
 
@@ -102,6 +107,16 @@ export const ImportExportModal = ({
             const headers = rows[bestIndex];
             setCsvHeaders(headers);
 
+            // [New] 헤더 기반 플랫폼 자동 감지 로직
+            const isAppCsv = headers.some(h => {
+                if (!h) return false;
+                const val = String(h).toLowerCase();
+                return val.includes('ios') || val.includes('aos') || val.includes('android');
+            });
+            if (isAppCsv) {
+                setImportMode('APP');
+            }
+
             const initialMapping: Record<string, number> = {};
             headers.forEach((h, idx) => {
                 if (!h) return;
@@ -149,6 +164,7 @@ export const ImportExportModal = ({
                     type: normalizeType(getVal('type')),
                     precondition: getVal('precondition'),
                     note: getVal('note'),
+                    platform_type: importMode, // [New] 선택된 모드(WEB/APP) 저장
                     steps: []
                 };
                 const s = getVal('step');
@@ -221,11 +237,37 @@ export const ImportExportModal = ({
                         </div>
                     ) : (
                         <div className="h-full flex flex-col">
+                            {/* [New] Import Mode Toggle UI */}
+                            <div className="flex items-center gap-6 mb-4 bg-gray-50 p-3 rounded border border-gray-200">
+                                <span className="font-bold text-sm text-gray-700">테스트 타입:</span>
+                                <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'WEB' ? 'text-primary font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    <input 
+                                        type="radio" 
+                                        name="importMode"
+                                        checked={importMode === 'WEB'} 
+                                        onChange={() => setImportMode('WEB')} 
+                                        className="accent-primary"
+                                    />
+                                    <span className="text-sm flex items-center gap-1"><Monitor size={14} /> WEB (단일 환경)</span>
+                                </label>
+                                <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'APP' ? 'text-primary font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    <input 
+                                        type="radio" 
+                                        name="importMode"
+                                        checked={importMode === 'APP'} 
+                                        onChange={() => setImportMode('APP')} 
+                                        className="accent-primary"
+                                    />
+                                    <span className="text-sm flex items-center gap-1"><Smartphone size={14} /> APP (iOS/Android 병렬)</span>
+                                </label>
+                            </div>
+
                             {step === 'UPLOAD' ? (
                                 <div className="space-y-4 flex-1 flex flex-col">
                                     <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 border border-yellow-100">
                                         <div className="font-bold flex items-center gap-1 mb-1"><AlertTriangle size={14} /> 주의사항</div>
                                         CSV 파일을 업로드하면 <strong>컬럼 매핑 단계</strong>로 이동합니다. 첫 번째 행(Header)을 기준으로 매핑을 시도합니다.
+                                        <br/>헤더에 'iOS', 'AOS', 'Android' 등이 포함되어 있으면 자동으로 <strong>APP 모드</strong>로 전환됩니다.
                                     </div>
                                     <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-gray-300 rounded-lg p-10 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-primary cursor-pointer transition group">
                                         <Upload size={48} className="mb-4 text-gray-400 group-hover:text-primary transition-colors" />
