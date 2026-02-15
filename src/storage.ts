@@ -374,7 +374,15 @@ export class RunService {
 
   static async saveResult(data: Partial<TestResult>) {
     if (USE_SUPABASE) {
-        const { data: existing } = await supabase.from('testResults').select('*').eq('runId', data.runId).eq('caseId', data.caseId).maybeSingle();
+        const targetDevice = data.device_platform || 'PC';
+      
+        const { data: existing } = await supabase
+            .from('testResults')
+            .select('*')
+            .eq('runId', data.runId)
+            .eq('caseId', data.caseId)
+            .eq('device_platform', targetDevice) // 플랫폼별로 결과 조회
+            .maybeSingle();
         
         let history: ExecutionHistoryItem[] = existing?.history || [];
         if (existing && existing.status !== 'UNTESTED') {
@@ -389,12 +397,19 @@ export class RunService {
             });
         }
 
-        const payload = { ...data, history, timestamp: now() };
+        const payload = { 
+        ...data, 
+        device_platform: targetDevice,
+        history, 
+        timestamp: now() 
+        };
+        
         if (existing) {
-            await supabase.from('testResults').update(payload).eq('id', existing.id);
-        } else {
-            await supabase.from('testResults').insert({ id: generateId(), ...payload });
-        }
+        await supabase.from('testResults').update(payload).eq('id', existing.id);
+      } else {
+        await supabase.from('testResults').insert({ id: generateId(), ...payload });
+      }
+      
     } else {
         // LocalStorage Fallback logic can be added here if needed
     }
