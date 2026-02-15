@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import {
-    Plus, Folder, FolderTree, Trash2, ArrowRightLeft, Clock, Edit, List, Loader2, Link as LinkIcon
+    Plus, Folder, FolderTree, Trash2, ArrowRightLeft, Clock, Edit, List, Loader2, Link as LinkIcon,
+    Smartphone, Monitor // [New] 아이콘 추가
 } from 'lucide-react';
 import { Section, TestCase, HistoryLog } from '@/src/types';
 import { TestCaseService, HistoryService } from '@/src/storage';
@@ -39,9 +40,8 @@ export const TestCaseManager = () => {
             TestCaseService.getCases(project.id)
         ]).then(([s, c]) => {
             setSections(s);
-
+            // 정렬: seq_id 기준 오름차순
             const sortedCases = c.sort((a, b) => (a.seq_id || 0) - (b.seq_id || 0));
-            
             setCases(sortedCases);
             setLoading(false);
         });
@@ -74,6 +74,7 @@ export const TestCaseManager = () => {
             projectId: project.id,
             priority: 'MEDIUM',
             type: 'FUNCTIONAL',
+            platform_type: 'WEB', // 기본값
             steps: [{ id: '1', step: '', expected: '' }]
         };
         setEditForm(newCase);
@@ -194,7 +195,10 @@ export const TestCaseManager = () => {
                                         <Trash2 size={12} />
                                     </button>
                                 </div>
-                                <div className="font-medium text-sm line-clamp-2">{c.title}</div>
+                                <div className="font-medium text-sm line-clamp-2 flex items-center gap-1">
+                                    {c.platform_type === 'APP' && <Smartphone size={12} className="text-purple-500 flex-shrink-0" />}
+                                    {c.title}
+                                </div>
                             </div>
                         ))}
                         {filteredCases.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">케이스가 없습니다.</div>}
@@ -212,6 +216,36 @@ export const TestCaseManager = () => {
                                 <label className="block text-sm font-bold text-gray-700 mb-1">제목</label>
                                 <input className="w-full border rounded p-2" value={editForm.title || ''} onChange={e => setEditForm({ ...editForm, title: e.target.value })} autoFocus />
                             </div>
+
+                            {/* [New] 플랫폼 타입 선택 UI 추가 */}
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">테스트 타입 (Platform)</label>
+                                <div className="flex gap-4">
+                                    <label className={`flex items-center gap-2 cursor-pointer p-2 rounded border ${(!editForm.platform_type || editForm.platform_type === 'WEB') ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-white border-gray-200'}`}>
+                                        <input 
+                                            type="radio" 
+                                            name="platform_type"
+                                            checked={(editForm.platform_type || 'WEB') === 'WEB'} 
+                                            onChange={() => setEditForm({ ...editForm, platform_type: 'WEB' })} 
+                                            className="accent-primary"
+                                        />
+                                        <Monitor size={16} />
+                                        <span className="text-sm font-medium">WEB (단일 환경)</span>
+                                    </label>
+                                    <label className={`flex items-center gap-2 cursor-pointer p-2 rounded border ${editForm.platform_type === 'APP' ? 'bg-purple-50 border-purple-200 text-purple-800' : 'bg-white border-gray-200'}`}>
+                                        <input 
+                                            type="radio" 
+                                            name="platform_type"
+                                            checked={editForm.platform_type === 'APP'} 
+                                            onChange={() => setEditForm({ ...editForm, platform_type: 'APP' })} 
+                                            className="accent-primary"
+                                        />
+                                        <Smartphone size={16} />
+                                        <span className="text-sm font-medium">APP (iOS + Android)</span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-bold text-gray-700 mb-1">섹션</label>
@@ -299,6 +333,11 @@ export const TestCaseManager = () => {
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="text-xs font-bold px-2 py-0.5 bg-gray-100 text-gray-600 rounded uppercase">{selectedCase.type}</span>
                                     <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${selectedCase.priority === 'HIGH' ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{selectedCase.priority} Priority</span>
+                                    {selectedCase.platform_type === 'APP' && (
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded border bg-purple-50 text-purple-600 border-purple-100 flex items-center gap-1">
+                                            <Smartphone size={10} /> APP
+                                        </span>
+                                    )}
                                 </div>
                                 <h2 className="text-2xl font-bold text-gray-900">{selectedCase.title}</h2>
 
