@@ -234,7 +234,8 @@ static async saveCase(data: Partial<TestCase>, user: User): Promise<TestCase> {
           steps: data.steps || [],
           priority: data.priority || 'MEDIUM',
           type: data.type || 'FUNCTIONAL',
-          note: data.note || '', // 👈 [추가됨] 이 부분이 누락되어 있었습니다!
+          note: data.note || '',
+          platform_type: data.platform_type || 'WEB', // 기본값 WEB
           authorId: user.id,
           createdAt: payload.createdAt,
           updatedAt: payload.updatedAt,
@@ -308,6 +309,7 @@ static async saveCase(data: Partial<TestCase>, user: User): Promise<TestCase> {
       priority: c.priority || 'MEDIUM',
       type: c.type || 'FUNCTIONAL',
       note: c.note || '',
+      platform_type: c.platform_type || 'WEB', // 기본값 WEB
       authorId: user.id,
       createdAt: now(),
       updatedAt: now()
