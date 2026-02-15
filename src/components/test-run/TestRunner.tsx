@@ -121,9 +121,9 @@ const BottomResultPane = ({
         <div className={`flex flex-col h-full rounded-xl shadow-sm border-2 bg-white overflow-hidden ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
             <div className="flex items-center justify-between p-3 border-b bg-gray-50">
                 <div className="font-bold text-sm flex items-center gap-2">
-                    {platform === 'iOS' && '🍎 iOS Result'}
-                    {platform === 'Android' && '🤖 Android Result'}
-                    {platform === 'PC' && '🖥️ WEB Result'}
+                    {platform === 'iOS' && 'iOS'}
+                    {platform === 'Android' && 'Android'}
+                    {platform === 'PC' && 'WEB'}
                 </div>
                 <div className="flex gap-1 scale-90 origin-right">
                     {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
