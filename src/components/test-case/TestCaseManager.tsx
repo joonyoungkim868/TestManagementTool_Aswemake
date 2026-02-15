@@ -234,11 +234,11 @@ export const TestCaseManager = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1">비고 (Note)</label>
-                                <input 
-                                    className="w-full border rounded p-2 bg-white" 
+                                <textarea 
+                                    className="w-full border rounded p-2 bg-white h-14 resize-none" 
                                     value={editForm.note || ''} 
                                     onChange={e => setEditForm({ ...editForm, note: e.target.value })} 
-                                    placeholder="테스트 관련 참고 사항 (선택)"
+                                    placeholder="테스트 관련 참고 사항 (줄바꿈 가능)"
                                 />
                             </div>
                             <div>
