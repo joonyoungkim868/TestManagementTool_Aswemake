@@ -27,6 +27,7 @@ export const ImportExportModal = ({
         { key: 'priority', label: '우선순위 (Priority)', required: false },
         { key: 'type', label: '유형 (Type)', required: false },
         { key: 'precondition', label: '사전조건 (Precondition)', required: false },
+        { key: 'note', label: '비고 (Note)', required: false },
         { key: 'step', label: '단계 (Step Action)', required: false },
         { key: 'expected', label: '기대결과 (Expected Result)', required: false },
     ];
@@ -66,7 +67,7 @@ export const ImportExportModal = ({
             let bestIndex = 0;
             let bestScore = -1;
             const SCAN_LIMIT = Math.min(rows.length, 20);
-            const KEYWORDS = ['title', '제목', 'section', '섹션', 'folder', '폴더', 'priority', '우선순위', '중요도', 'type', '유형', 'step', '단계', '절차', 'expected', '기대', '결과'];
+            const KEYWORDS = ['title', '제목', 'section', '섹션', 'folder', '폴더', 'priority', '우선순위', '중요도', 'type', '유형', 'step', '단계', '절차', 'expected', '기대', '결과', 'note', '비고', '노트', 'remarks'];
 
             for (let i = 0; i < SCAN_LIMIT; i++) {
                 const row = rows[i];
@@ -112,6 +113,7 @@ export const ImportExportModal = ({
                 else if (header.includes('precondition') || header.includes('사전')) initialMapping['precondition'] = idx;
                 else if (header.includes('step') || header.includes('action') || header.includes('단계') || header.includes('절차')) initialMapping['step'] = idx;
                 else if (header.includes('expected') || header.includes('result') || header.includes('기대') || header.includes('예상')) initialMapping['expected'] = idx;
+                else if (header.includes('note') || header.includes('비고') || header.includes('노트') || header.includes('remarks')) initialMapping['note'] = idx;
             });
             setMapping(initialMapping);
             setStep('MAP');
@@ -146,6 +148,7 @@ export const ImportExportModal = ({
                     priority: normalizePriority(getVal('priority')),
                     type: normalizeType(getVal('type')),
                     precondition: getVal('precondition'),
+                    note: getVal('note'),
                     steps: []
                 };
                 const s = getVal('step');
