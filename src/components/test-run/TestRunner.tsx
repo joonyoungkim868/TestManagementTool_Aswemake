@@ -15,13 +15,13 @@ import { ReportModal } from './ReportModal';
 import { useLayout } from '../layout/MainLayout';
 import { useSearchParams } from 'react-router-dom';
 
-// Local type extension for UI display
+// UI용 타입 확장
 interface TestCaseWithSection extends TestCase {
     sectionTitle?: string;
 }
 
 // -------------------------------------------------------------------------
-// [Sub Component] 상태 선택 드롭다운 (Step용)
+// [Sub Component] Step 상태 선택 드롭다운
 // -------------------------------------------------------------------------
 const StatusDropdown = ({ 
     value, 
@@ -45,6 +45,7 @@ const StatusDropdown = ({
             value={value}
             onChange={(e) => onChange(e.target.value as TestStatus)}
             className={`h-8 text-xs font-bold rounded border focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 cursor-pointer px-2 w-full transition-colors ${getBgColor(value)}`}
+            onClick={(e) => e.stopPropagation()} 
         >
             <option value="UNTESTED" className="bg-white text-gray-500">Untested</option>
             <option value="PASS" className="bg-white text-green-600">PASS</option>
@@ -56,30 +57,41 @@ const StatusDropdown = ({
 };
 
 // -------------------------------------------------------------------------
-// [Sub Component] 하단 결과 입력 패널 (Controlled Component)
+// [Sub Component] 하단 결과 입력 패널
 // -------------------------------------------------------------------------
 const BottomResultPane = ({
     platform,
     data,
-    initialHistory, // 히스토리 데이터 추가
+    initialHistory,
     onUpdate,
     onSaveNext
 }: {
     platform: DevicePlatform,
     data: Partial<TestResult>,
     initialHistory: ExecutionHistoryItem[],
-    onUpdate: (field: keyof TestResult, value: any) => void,
+    onUpdate: (field: keyof TestResult, value: any) => Promise<void>,
     onSaveNext: () => void
 }) => {
     const status = data.status || 'UNTESTED';
     const actual = data.actualResult || '';
     const comment = data.comment || '';
-    
-    // Defect info extraction
     const defectLabel = data.issues?.[0]?.label || '';
     const defectUrl = data.issues?.[0]?.url || '';
 
     const [historyExpanded, setHistoryExpanded] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    const handlePassAndNext = async () => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            const nextStatus = status === 'FAIL' ? 'FAIL' : 'PASS';
+            await onUpdate('status', nextStatus);
+            onSaveNext(); 
+        } finally {
+            setTimeout(() => setIsProcessing(false), 300);
+        }
+    };
 
     const getStatusColor = (s: TestStatus) => {
         switch (s) {
@@ -91,7 +103,6 @@ const BottomResultPane = ({
         }
     };
 
-    // 히스토리 타임라인 구성
     const fullHistoryTimeline = status === 'UNTESTED' ? [] : [
         {
             status,
@@ -108,12 +119,11 @@ const BottomResultPane = ({
 
     return (
         <div className={`flex flex-col h-full rounded-xl shadow-sm border-2 bg-white overflow-hidden ${getStatusColor(status).replace('text-', 'border-').split(' ')[2]}`}>
-            {/* 헤더 */}
             <div className="flex items-center justify-between p-3 border-b bg-gray-50">
                 <div className="font-bold text-sm flex items-center gap-2">
-                    {platform === 'iOS' && 'iOS Result'}
-                    {platform === 'Android' && 'Android Result'}
-                    {platform === 'PC' && 'WEB Result'}
+                    {platform === 'iOS' && '🍎 iOS Result'}
+                    {platform === 'Android' && '🤖 Android Result'}
+                    {platform === 'PC' && '🖥️ WEB Result'}
                 </div>
                 <div className="flex gap-1 scale-90 origin-right">
                     {(['PASS', 'FAIL', 'BLOCK', 'NA'] as TestStatus[]).map(s => (
@@ -128,7 +138,6 @@ const BottomResultPane = ({
                 </div>
             </div>
 
-            {/* 입력 폼 */}
             <div className="p-4 space-y-3 flex-1 overflow-y-auto">
                 <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Actual Result</label>
@@ -176,7 +185,6 @@ const BottomResultPane = ({
                 )}
             </div>
             
-            {/* 저장 버튼 및 히스토리 */}
             <div className="border-t bg-gray-50">
                 <button
                     onClick={() => setHistoryExpanded(!historyExpanded)}
@@ -201,10 +209,16 @@ const BottomResultPane = ({
 
                 <div className="p-3 flex justify-end">
                     <button
-                        onClick={onSaveNext}
-                        className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded shadow hover:bg-blue-600 flex items-center gap-1 transition-colors"
+                        onClick={handlePassAndNext}
+                        disabled={isProcessing}
+                        className={`
+                            px-4 py-1.5 text-xs font-bold rounded shadow flex items-center gap-1 transition-all duration-200
+                            ${isProcessing ? 'bg-blue-400 cursor-not-allowed opacity-80' : 'bg-primary hover:bg-blue-700 active:scale-95 cursor-pointer'}
+                            text-white
+                        `}
                     >
-                        <CheckCircle size={14} /> {status === 'FAIL' ? 'Save & Next' : 'Pass & Next'}
+                        {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                        {status === 'FAIL' ? 'Save & Next' : 'Pass & Next'}
                     </button>
                 </div>
             </div>
@@ -231,14 +245,13 @@ export const TestRunner = () => {
     const [isDashboardOpen, setDashboardOpen] = useState(true);
     const [runStats, setRunStats] = useState<Record<string, TestResult[]>>({});
 
-    // [New] State for Results (Lifted State)
+    // Lifted State
     const [pcResult, setPcResult] = useState<Partial<TestResult>>({});
     const [iosResult, setIosResult] = useState<Partial<TestResult>>({});
     const [aosResult, setAosResult] = useState<Partial<TestResult>>({});
 
     const [loading, setLoading] = useState(true);
     
-    // 실행 목록 로드
     const loadRuns = async () => {
         if (!project) return;
         setLoading(true);
@@ -286,7 +299,6 @@ export const TestRunner = () => {
         setSearchParams(params);
     };
 
-    // 상세 진입 시 데이터 로드
     useEffect(() => {
         if (selectedRun && project) {
             Promise.all([
@@ -310,7 +322,6 @@ export const TestRunner = () => {
         }
     }, [selectedRun]);
 
-    // 케이스 변경 시 결과 상태 동기화
     useEffect(() => {
         const activeCase = runCases[activeCaseIndex];
         if (!activeCase) return;
@@ -328,8 +339,7 @@ export const TestRunner = () => {
 
     }, [activeCaseIndex, runResults, runCases]);
 
-
-    // [Logic] 자동 저장 및 상태 업데이트
+    // [버그 수정 1] 통합 업데이트 함수
     const handleResultUpdate = async (platform: DevicePlatform, field: keyof TestResult, value: any) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         const currentCase = runCases[activeCaseIndex];
@@ -352,29 +362,50 @@ export const TestRunner = () => {
         RunService.getResults(selectedRun.id).then(setRunResults);
     };
 
-    // [Logic] Step 결과 변경 시 자동 계산
-    const handleStepUpdate = (platform: DevicePlatform, stepId: string, newStatus: TestStatus) => {
+    // [버그 수정 1] Step 변경 시, State를 한 번에 업데이트하여 덮어쓰기 방지
+    const handleStepUpdate = async (platform: DevicePlatform, stepId: string, newStatus: TestStatus) => {
+        if (!selectedRun || !runCases[activeCaseIndex]) return;
+        const currentCase = runCases[activeCaseIndex];
+
         let targetState = platform === 'iOS' ? iosResult : platform === 'Android' ? aosResult : pcResult;
+        const setTargetState = platform === 'iOS' ? setIosResult : platform === 'Android' ? setAosResult : setPcResult;
+
         const currentSteps = targetState.stepResults || [];
-        
         const updatedSteps = currentSteps.filter(s => s.stepId !== stepId);
         updatedSteps.push({ stepId, status: newStatus });
 
+        // 상태 자동 계산
         let calculatedStatus: TestStatus = 'PASS';
         const hasFail = updatedSteps.some(s => s.status === 'FAIL');
         const hasBlock = updatedSteps.some(s => s.status === 'BLOCK');
         
         if (hasFail) calculatedStatus = 'FAIL';
         else if (hasBlock) calculatedStatus = 'BLOCK';
-        
+        else if (updatedSteps.length < (runCases[activeCaseIndex]?.steps.length || 0)) {
+             // 모든 스텝 미완료 시 로직 (선택적)
+        }
+
+        // [중요] 상태 객체를 완성해서 한 번에 저장
         const updatedResult = { 
             ...targetState, 
             stepResults: updatedSteps, 
             status: calculatedStatus 
         };
         
-        handleResultUpdate(platform, 'stepResults', updatedSteps);
-        handleResultUpdate(platform, 'status', calculatedStatus);
+        // UI 즉시 반영
+        setTargetState(updatedResult);
+
+        // DB 저장
+        const payload: Partial<TestResult> = {
+            runId: selectedRun.id,
+            caseId: currentCase.id,
+            device_platform: platform,
+            testerId: user?.id,
+            ...updatedResult
+        };
+        
+        await RunService.saveResult(payload);
+        RunService.getResults(selectedRun.id).then(setRunResults);
     };
 
     const handleNext = () => {
@@ -502,9 +533,23 @@ export const TestRunner = () => {
             )}
 
             <div className="flex-1 flex overflow-hidden">
+                {/* [버그 수정 2] 사이드바 리스트 렌더링 로직 수정 */}
                 <div className="w-72 bg-white border-r overflow-y-auto hidden md:block">
                     {runCases.map((c, idx) => {
-                        const status = isAppMode ? (iosResult.status === 'FAIL' || aosResult.status === 'FAIL' ? 'FAIL' : 'UNTESTED') : (pcResult.status || 'UNTESTED');
+                        // 현재 루프의 케이스(c)에 해당하는 결과를 찾음 (전체 상태 사용 X)
+                        const cPcRes = runResults.find(r => r.caseId === c.id && (!r.device_platform || r.device_platform === 'PC'));
+                        const cIosRes = runResults.find(r => r.caseId === c.id && r.device_platform === 'iOS');
+                        const cAosRes = runResults.find(r => r.caseId === c.id && r.device_platform === 'Android');
+
+                        let status: TestStatus = 'UNTESTED';
+                        if (c.platform_type === 'APP') {
+                             if (cIosRes?.status === 'FAIL' || cAosRes?.status === 'FAIL') status = 'FAIL';
+                             else if (cIosRes?.status === 'PASS' && cAosRes?.status === 'PASS') status = 'PASS';
+                             else if (cIosRes?.status || cAosRes?.status) status = cIosRes?.status || cAosRes?.status || 'UNTESTED';
+                        } else {
+                             status = cPcRes?.status || 'UNTESTED';
+                        }
+
                         return (
                             <div key={c.id} onClick={() => { setActiveCaseIndex(idx); updateUrl(selectedRun.id, idx); }} className={`p-3 border-b cursor-pointer flex items-center gap-2 text-sm hover:bg-gray-50 ${activeCaseIndex === idx ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}>
                                 <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'PASS' ? 'bg-green-500' : status === 'FAIL' ? 'bg-red-500' : 'bg-gray-300'}`} />
