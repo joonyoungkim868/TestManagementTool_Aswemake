@@ -4,6 +4,8 @@ export type ProjectStatus = 'ACTIVE' | 'ARCHIVED';
 export type TestStatus = 'PASS' | 'FAIL' | 'BLOCK' | 'NA' | 'UNTESTED';
 export type CasePriority = 'HIGH' | 'MEDIUM' | 'LOW';
 export type CaseType = 'FUNCTIONAL' | 'UI' | 'PERFORMANCE' | 'SECURITY';
+export type PlatformType = 'WEB' | 'APP'; // 케이스 성격
+export type DevicePlatform = 'PC' | 'iOS' | 'Android'; // 실제 실행 환경
 
 export interface User {
   id: string;
@@ -66,6 +68,7 @@ export interface TestCase {
   sectionTitle?: string; // UI용 확장 필드
   seq_id?: number; // 정렬용 시퀀스 ID
   note?: string; // 비고
+  platform_type?: PlatformType; // 케이스 성격 (WEB, APP)
 }
 
 export interface TestRun {
@@ -101,4 +104,5 @@ export interface TestResult {
   stepResults?: { stepId: string; status: TestStatus }[];
   issues?: Issue[];
   history?: ExecutionHistoryItem[];
+  device_platform?: DevicePlatform; // 테스트 실행 환경 (PC, iOS, Android)
 }
