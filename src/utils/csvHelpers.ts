@@ -45,7 +45,7 @@ export const parseCSV = (text: string): string[][] => {
 
 export const exportToCSV = (cases: TestCase[], sections: Section[]) => {
   const sectionMap = new Map(sections.map(s => [s.id, s.title]));
-  const headers = ['Section', 'Title', 'Priority', 'Type', 'Precondition', 'Step Action', 'Step Expected'];
+  const headers = ['Section', 'Title', 'Priority', 'Type', 'Precondition', 'Note', 'Step Action', 'Step Expected'];
   
   const rows: string[][] = [];
   rows.push(headers);
@@ -59,13 +59,14 @@ export const exportToCSV = (cases: TestCase[], sections: Section[]) => {
       tc.priority,
       tc.type,
       tc.precondition.replace(/\n/g, '\\n'),
+      tc.note ? tc.note.replace(/\n/g, '\\n') : '', // [추가] Note 데이터 매핑
       firstStep.step.replace(/\n/g, '\\n'),
       firstStep.expected.replace(/\n/g, '\\n')
     ]);
 
     for (let i = 1; i < tc.steps.length; i++) {
       rows.push([
-        '', '', '', '', '',
+        '', '', '', '', '', '',
         tc.steps[i].step.replace(/\n/g, '\\n'),
         tc.steps[i].expected.replace(/\n/g, '\\n')
       ]);
