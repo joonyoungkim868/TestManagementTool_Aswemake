@@ -339,7 +339,6 @@ export const TestRunner = () => {
 
     }, [activeCaseIndex, runResults, runCases]);
 
-    // [버그 수정 1] 통합 업데이트 함수
     const handleResultUpdate = async (platform: DevicePlatform, field: keyof TestResult, value: any) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         const currentCase = runCases[activeCaseIndex];
@@ -362,6 +361,7 @@ export const TestRunner = () => {
         RunService.getResults(selectedRun.id).then(setRunResults);
     };
 
+    // [수정] Step 결과 변경 시 자동 계산 (NA 우선순위 포함)
     const handleStepUpdate = async (platform: DevicePlatform, stepId: string, newStatus: TestStatus) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         const currentCase = runCases[activeCaseIndex];
@@ -370,50 +370,41 @@ export const TestRunner = () => {
         const setTargetState = platform === 'iOS' ? setIosResult : platform === 'Android' ? setAosResult : setPcResult;
 
         const currentSteps = targetState.stepResults || [];
-        
-        // 1. 스텝 결과 업데이트 (기존 값 제거 후 추가)
         const updatedSteps = currentSteps.filter(s => s.stepId !== stepId);
         updatedSteps.push({ stepId, status: newStatus });
 
-        // 2. 전체 상태 자동 계산 로직
+        // 자동 계산 로직
         const totalSteps = currentCase.steps.length;
-        // 'UNTESTED'가 아닌 유효한 결과만 필터링
         const validResults = updatedSteps.filter(s => s.status !== 'UNTESTED');
         
         let calculatedStatus: TestStatus = 'UNTESTED';
 
         const hasFail = validResults.some(s => s.status === 'FAIL');
         const hasBlock = validResults.some(s => s.status === 'BLOCK');
-        const hasNA = validResults.some(s => s.status === 'NA'); // [변경] 하나라도 NA가 있는지 확인
+        const hasNA = validResults.some(s => s.status === 'NA');
 
         if (hasFail) {
             calculatedStatus = 'FAIL';
         } else if (hasBlock) {
             calculatedStatus = 'BLOCK';
         } else if (hasNA) {
-            calculatedStatus = 'NA'; // [변경] FAIL/BLOCK이 없고 NA가 하나라도 있으면 전체 NA
+            calculatedStatus = 'NA';
         } else {
-            // FAIL, BLOCK, NA가 없는 경우 (즉, PASS만 있거나 비어있음)
             if (validResults.length >= totalSteps) {
-                // 모든 스텝이 수행되었고, 위 상태들이 없다면 => PASS
                 calculatedStatus = 'PASS';
             } else {
-                // 아직 수행되지 않은 스텝이 남았고, 특이사항(Fail/Block/NA)이 없음
                 calculatedStatus = 'UNTESTED';
             }
         }
 
-        // 상태 객체를 완성해서 한 번에 저장
         const updatedResult = { 
             ...targetState, 
             stepResults: updatedSteps, 
             status: calculatedStatus 
         };
         
-        // UI 즉시 반영
         setTargetState(updatedResult);
 
-        // DB 저장
         const payload: Partial<TestResult> = {
             runId: selectedRun.id,
             caseId: currentCase.id,
@@ -442,14 +433,16 @@ export const TestRunner = () => {
         }
     };
 
+    // [1] Stats Calculation Logic 수정: NA, BLOCK 포함
     const getRunStats = () => {
         const total = runCases.length;
         const pass = runResults.filter(r => r.status === 'PASS').length;
         const fail = runResults.filter(r => r.status === 'FAIL').length;
         const block = runResults.filter(r => r.status === 'BLOCK').length;
-        const tested = runResults.length;
-        const untested = total - tested;
-        return { total, pass, fail, block, untested };
+        const na = runResults.filter(r => r.status === 'NA').length;
+        // const tested = runResults.length; 
+        const untested = total - (pass + fail + block + na);
+        return { total, pass, fail, block, na, untested };
     };
 
     const stats = getRunStats();
@@ -472,9 +465,16 @@ export const TestRunner = () => {
                         const results = runStats[run.id] || [];
                         const pass = results.filter(r => r.status === 'PASS').length;
                         const fail = results.filter(r => r.status === 'FAIL').length;
+                        const block = results.filter(r => r.status === 'BLOCK').length;
+                        const na = results.filter(r => r.status === 'NA').length;
                         const total = run.caseIds?.length || 0;
+                        
+                        // [2] 프로세스 바 UI 수정: BLOCK, NA 섹션 추가
                         const passWidth = total > 0 ? (pass / total) * 100 : 0;
                         const failWidth = total > 0 ? (fail / total) * 100 : 0;
+                        const blockWidth = total > 0 ? (block / total) * 100 : 0;
+                        const naWidth = total > 0 ? (na / total) * 100 : 0;
+
                         return (
                             <div key={run.id} className="bg-white p-4 rounded shadow border hover:border-primary cursor-pointer group" onClick={() => { setSelectedRun(run); updateUrl(run.id, 0); }}>
                                 <div className="flex justify-between items-center mb-2">
@@ -485,7 +485,12 @@ export const TestRunner = () => {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden flex"><div className="bg-green-500 h-full" style={{ width: `${passWidth}%` }} /><div className="bg-red-500 h-full" style={{ width: `${failWidth}%` }} /></div>
+                                    <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden flex">
+                                        <div className="bg-green-500 h-full" style={{ width: `${passWidth}%` }} />
+                                        <div className="bg-red-500 h-full" style={{ width: `${failWidth}%` }} />
+                                        <div className="bg-gray-800 h-full" style={{ width: `${blockWidth}%` }} />
+                                        <div className="bg-orange-400 h-full" style={{ width: `${naWidth}%` }} />
+                                    </div>
                                     <span className="text-xs font-bold text-gray-500">{total} Cases</span>
                                 </div>
                             </div>
@@ -516,10 +521,12 @@ export const TestRunner = () => {
                                 {isDashboardOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             </button>
                             <div className="h-4 w-px bg-gray-300 mx-1"></div>
+                            {/* 상단 미니 바: NA, BLOCK 추가 */}
                             <div className="w-32 h-2.5 bg-gray-200 rounded-full overflow-hidden flex shadow-inner">
                                 <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${(stats.pass / (stats.total || 1)) * 100}%` }} />
                                 <div className="h-full bg-red-500 transition-all duration-500" style={{ width: `${(stats.fail / (stats.total || 1)) * 100}%` }} />
                                 <div className="h-full bg-gray-800 transition-all duration-500" style={{ width: `${(stats.block / (stats.total || 1)) * 100}%` }} />
+                                <div className="h-full bg-orange-400 transition-all duration-500" style={{ width: `${(stats.na / (stats.total || 1)) * 100}%` }} />
                             </div>
                         </div>
                     </div>
@@ -532,18 +539,29 @@ export const TestRunner = () => {
                     <div className="max-w-6xl mx-auto flex gap-8 items-center justify-center">
                         <div className="h-32 w-32 relative">
                             <ResponsiveContainer width="100%" height="100%">
+                                {/* [3] Pie Chart: NA, BLOCK 추가 */}
                                 <PieChart>
-                                    <Pie data={[{ name: 'Pass', value: stats.pass, fill: '#22c55e' }, { name: 'Fail', value: stats.fail, fill: '#ef4444' }, { name: 'Block', value: stats.block, fill: '#1f2937' }, { name: 'Untested', value: stats.untested, fill: '#e5e7eb' }]} innerRadius={25} outerRadius={40} paddingAngle={2} dataKey="value">
-                                        <Cell fill="#22c55e" /><Cell fill="#ef4444" /><Cell fill="#1f2937" /><Cell fill="#e5e7eb" />
+                                    <Pie data={[
+                                            { name: 'Pass', value: stats.pass, fill: '#22c55e' }, 
+                                            { name: 'Fail', value: stats.fail, fill: '#ef4444' }, 
+                                            { name: 'Block', value: stats.block, fill: '#1f2937' }, 
+                                            { name: 'NA', value: stats.na, fill: '#fb923c' }, 
+                                            { name: 'Untested', value: stats.untested, fill: '#e5e7eb' }
+                                        ]} 
+                                        innerRadius={25} outerRadius={40} paddingAngle={2} dataKey="value"
+                                    >
+                                        <Cell fill="#22c55e" /><Cell fill="#ef4444" /><Cell fill="#1f2937" /><Cell fill="#fb923c" /><Cell fill="#e5e7eb" />
                                     </Pie>
                                 </PieChart>
                             </ResponsiveContainer>
                             <div className="absolute inset-0 flex items-center justify-center font-bold text-gray-600 text-xs">{Math.round((stats.pass / (stats.total || 1)) * 100)}%</div>
                         </div>
-                        <div className="grid grid-cols-4 gap-4">
+                        {/* [3] Dashboard Cards: NA 카드 추가 */}
+                        <div className="grid grid-cols-5 gap-4">
                             <div className="p-3 bg-green-50 rounded border border-green-100 w-24 text-center"><div className="text-xs font-bold text-green-700">Pass</div><div className="text-xl font-bold text-green-800">{stats.pass}</div></div>
                             <div className="p-3 bg-red-50 rounded border border-red-100 w-24 text-center"><div className="text-xs font-bold text-red-700">Fail</div><div className="text-xl font-bold text-red-800">{stats.fail}</div></div>
                             <div className="p-3 bg-gray-100 rounded border border-gray-200 w-24 text-center"><div className="text-xs font-bold text-gray-700">Block</div><div className="text-xl font-bold text-gray-800">{stats.block}</div></div>
+                            <div className="p-3 bg-orange-50 rounded border border-orange-100 w-24 text-center"><div className="text-xs font-bold text-orange-600">N/A</div><div className="text-xl font-bold text-orange-700">{stats.na}</div></div>
                             <div className="p-3 bg-white rounded border border-gray-200 w-24 text-center"><div className="text-xs font-bold text-gray-400">Untested</div><div className="text-xl font-bold text-gray-500">{stats.untested}</div></div>
                         </div>
                     </div>
@@ -551,26 +569,34 @@ export const TestRunner = () => {
             )}
 
             <div className="flex-1 flex overflow-hidden">
-                {/* [버그 수정 2] 사이드바 리스트 렌더링 로직 수정 */}
                 <div className="w-72 bg-white border-r overflow-y-auto hidden md:block">
                     {runCases.map((c, idx) => {
-                        // 현재 루프의 케이스(c)에 해당하는 결과를 찾음 (전체 상태 사용 X)
                         const cPcRes = runResults.find(r => r.caseId === c.id && (!r.device_platform || r.device_platform === 'PC'));
                         const cIosRes = runResults.find(r => r.caseId === c.id && r.device_platform === 'iOS');
                         const cAosRes = runResults.find(r => r.caseId === c.id && r.device_platform === 'Android');
 
                         let status: TestStatus = 'UNTESTED';
                         if (c.platform_type === 'APP') {
+                             // 앱 모드 대표 상태 로직: 하나라도 Fail이면 Fail, Block, NA 순
                              if (cIosRes?.status === 'FAIL' || cAosRes?.status === 'FAIL') status = 'FAIL';
+                             else if (cIosRes?.status === 'BLOCK' || cAosRes?.status === 'BLOCK') status = 'BLOCK';
+                             else if (cIosRes?.status === 'NA' || cAosRes?.status === 'NA') status = 'NA';
                              else if (cIosRes?.status === 'PASS' && cAosRes?.status === 'PASS') status = 'PASS';
-                             else if (cIosRes?.status || cAosRes?.status) status = cIosRes?.status || cAosRes?.status || 'UNTESTED';
+                             else status = cIosRes?.status || cAosRes?.status || 'UNTESTED';
                         } else {
                              status = cPcRes?.status || 'UNTESTED';
                         }
+                        
+                        // [4] 사이드바 리스트 색상 로직 수정: NA, BLOCK 색상 추가
+                        let statusColor = 'bg-gray-300';
+                        if (status === 'PASS') statusColor = 'bg-green-500';
+                        else if (status === 'FAIL') statusColor = 'bg-red-500';
+                        else if (status === 'BLOCK') statusColor = 'bg-gray-800';
+                        else if (status === 'NA') statusColor = 'bg-orange-400';
 
                         return (
                             <div key={c.id} onClick={() => { setActiveCaseIndex(idx); updateUrl(selectedRun.id, idx); }} className={`p-3 border-b cursor-pointer flex items-center gap-2 text-sm hover:bg-gray-50 ${activeCaseIndex === idx ? 'bg-blue-50 border-l-4 border-l-primary' : ''}`}>
-                                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'PASS' ? 'bg-green-500' : status === 'FAIL' ? 'bg-red-500' : 'bg-gray-300'}`} />
+                                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${statusColor}`} />
                                 <div className="flex flex-col min-w-0">
                                     <span className="truncate">{c.title}</span>
                                     {c.platform_type === 'APP' && <span className="text-[10px] text-purple-500 flex items-center gap-1"><Smartphone size={10}/> APP</span>}
