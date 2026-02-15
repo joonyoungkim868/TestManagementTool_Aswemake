@@ -180,7 +180,7 @@ const TestResultPane = ({
             {/* 플랫폼 헤더 */}
             <div className={`font-bold text-sm mb-2 flex items-center gap-2 py-1 px-2 rounded-t-lg border-b-2 
                 ${platform === 'iOS' ? 'bg-gray-50 text-gray-800 border-gray-300' : 
-                  platform === 'Android' ? 'bg-green-50 text-green-800 border-green-300' : 
+                  platform === 'Android' ? 'bg-gray-50 text-gray-800 border-gray-300' :
                   'bg-blue-50 text-blue-800 border-blue-300'}`}>
                 {platform === 'iOS' && <span className="text-lg"></span>}
                 {platform === 'Android' && <span className="text-lg"></span>}
