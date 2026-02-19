@@ -15,7 +15,7 @@ export const ImportExportModal = ({
     const [tab, setTab] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
     const [step, setStep] = useState<'UPLOAD' | 'MAP'>('UPLOAD');
     
-    // [New] Import 모드 상태 (WEB: 단일 / APP: iOS+Android)
+    // Import 모드 상태 (WEB: 단일 / APP: iOS+Android)
     const [importMode, setImportMode] = useState<'WEB' | 'APP'>('WEB');
 
     const [csvMatrix, setCsvMatrix] = useState<string[][]>([]);
@@ -107,7 +107,7 @@ export const ImportExportModal = ({
             const headers = rows[bestIndex];
             setCsvHeaders(headers);
 
-            // [New] 헤더 기반 플랫폼 자동 감지 로직
+            // 헤더 기반 플랫폼 자동 감지 로직
             const isAppCsv = headers.some(h => {
                 if (!h) return false;
                 const val = String(h).toLowerCase();
@@ -137,6 +137,7 @@ export const ImportExportModal = ({
         }
     };
 
+    // [수정된 부분] 그룹핑 로직 및 조건부 데이터 할당 적용
     const finalizeImport = async () => {
         if (!user) return;
         if (mapping['title'] === undefined) {
@@ -145,47 +146,110 @@ export const ImportExportModal = ({
         }
 
         const newCases: any[] = [];
-        let currentCase: any = null;
+        
+        // 1. 데이터를 제목(Title) 단위로 그룹화
+        const groupedData: { title: string, rows: string[][] }[] = [];
+        let currentGroup: { title: string, rows: string[][] } | null = null;
 
         for (let i = headerRowIndex + 1; i < csvMatrix.length; i++) {
             const row = csvMatrix[i];
-            if (row.length === 0) continue;
-            const getVal = (key: string) => {
-                const idx = mapping[key];
-                return (idx !== undefined && row[idx]) ? row[idx] : '';
-            };
-            const title = getVal('title');
+            // 빈 행 건너뛰기
+            if (row.length === 0 || !row.some(c => c && c.trim() !== '')) continue;
+            
+            const titleVal = row[mapping['title']] || '';
 
-            if (title && title.trim()) {
-                currentCase = {
-                    sectionTitle: getVal('section'),
-                    title: title,
-                    priority: normalizePriority(getVal('priority')),
-                    type: normalizeType(getVal('type')),
-                    precondition: getVal('precondition'),
-                    note: getVal('note'),
-                    platform_type: importMode, // [New] 선택된 모드(WEB/APP) 저장
-                    steps: []
-                };
-                const s = getVal('step');
-                const e = getVal('expected');
-                if (s || e) {
-                    currentCase.steps.push({ id: Math.random().toString(36).substr(2, 9), step: s, expected: e });
+            if (titleVal && titleVal.trim() !== '') {
+                // 새로운 그룹(케이스) 시작
+                currentGroup = { title: titleVal, rows: [] };
+                groupedData.push(currentGroup);
+            }
+            
+            // 현재 그룹에 행 추가 (제목이 없는 연속된 행도 현재 그룹에 포함)
+            if (currentGroup) {
+                currentGroup.rows.push(row);
+            }
+        }
+
+        if (groupedData.length === 0) {
+            alert("가져올 케이스가 없습니다. 매핑이나 CSV 내용을 확인해주세요.");
+            return;
+        }
+
+        // 2. 각 그룹별로 로직 적용하여 케이스 객체 생성
+        for (const group of groupedData) {
+            const { title, rows } = group;
+            
+            // A. 데이터 추출 (사전조건, 비고)
+            const preconditions = rows.map(r => {
+                const val = mapping['precondition'] !== undefined ? r[mapping['precondition']] : '';
+                return val ? val.trim() : '';
+            });
+            
+            const notes = rows.map(r => {
+                const val = mapping['note'] !== undefined ? r[mapping['note']] : '';
+                return val ? val.trim() : '';
+            });
+
+            // B. 동일 여부 판단 (첫 번째 값과 모든 값이 같은지 확인)
+            const isAllPreconditionsSame = preconditions.every(p => p === preconditions[0]);
+            const isAllNotesSame = notes.every(n => n === notes[0]);
+
+            // C. 케이스 메타 정보 생성 (첫 번째 행 기준)
+            const firstRow = rows[0]; 
+            const getVal = (key: string, r: string[] = firstRow) => {
+                 const idx = mapping[key];
+                 return (idx !== undefined && r[idx]) ? r[idx] : '';
+            };
+
+            const testCase = {
+                sectionTitle: getVal('section'),
+                title: title,
+                priority: normalizePriority(getVal('priority')),
+                type: normalizeType(getVal('type')),
+                platform_type: importMode, // 선택된 모드(WEB/APP) 저장
+                
+                // [핵심] 모두 같으면 공통 영역에 표시, 하나라도 다르면 비워둠(숨김)
+                precondition: isAllPreconditionsSame ? preconditions[0] : '',
+                note: isAllNotesSame ? notes[0] : '',
+                
+                steps: [] as any[]
+            };
+
+            // D. Step 생성 및 텍스트 병합 (Condition/Note Injection)
+            rows.forEach((r, idx) => {
+                let s = getVal('step', r);
+                const e = getVal('expected', r);
+                
+                // Step이나 Expected가 둘 다 없으면 스킵 (단순 정보 행일 경우 등)
+                if ((!s || !s.trim()) && (!e || !e.trim())) return;
+
+                // [핵심] 조건이 다르면 Step 텍스트 앞에 붙임
+                if (!isAllPreconditionsSame && preconditions[idx]) {
+                    s = `[조건: ${preconditions[idx]}]\n${s}`;
                 }
-                newCases.push(currentCase);
-            } else if (currentCase) {
-                const s = getVal('step');
-                const e = getVal('expected');
-                if (s || e) {
-                    currentCase.steps.push({ id: Math.random().toString(36).substr(2, 9), step: s, expected: e });
+
+                // [핵심] 비고가 다르면 Step 텍스트 앞에 붙임
+                if (!isAllNotesSame && notes[idx]) {
+                    s = `[비고: ${notes[idx]}]\n${s}`;
                 }
+
+                testCase.steps.push({
+                    id: Math.random().toString(36).substr(2, 9),
+                    step: s || '', // null 방지
+                    expected: e || ''
+                });
+            });
+
+            if (testCase.steps.length > 0) {
+                newCases.push(testCase);
             }
         }
 
         if (newCases.length === 0) {
-            alert("가져올 케이스가 없습니다. 매핑이나 CSV 내용을 확인해주세요.");
+            alert("유효한 단계(Step)가 있는 케이스가 없습니다.");
             return;
         }
+
         setImporting(true);
         await (TestCaseService as any).importCases(project.id, newCases, user);
         setImporting(false);
@@ -237,7 +301,7 @@ export const ImportExportModal = ({
                         </div>
                     ) : (
                         <div className="h-full flex flex-col">
-                            {/* [New] Import Mode Toggle UI */}
+                            {/* Import Mode Toggle UI */}
                             <div className="flex items-center gap-6 mb-4 bg-gray-50 p-3 rounded border border-gray-200">
                                 <span className="font-bold text-sm text-gray-700">테스트 타입:</span>
                                 <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'WEB' ? 'text-primary font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
