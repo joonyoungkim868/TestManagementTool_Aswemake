@@ -220,22 +220,22 @@ export const ImportExportModal = ({
                 let s = getVal('step', r);
                 const e = getVal('expected', r);
                 
-                // Step이나 Expected가 둘 다 없으면 스킵 (단순 정보 행일 경우 등)
                 if ((!s || !s.trim()) && (!e || !e.trim())) return;
 
-                // [핵심] 조건이 다르면 Step 텍스트 앞에 붙임
+                // [수정 1] 조건은 맨 앞에 (줄바꿈 하나)
                 if (!isAllPreconditionsSame && preconditions[idx]) {
+                    // "1. ..." 포맷이 깨지지 않도록 [조건: 1. ...] 형태로 붙임
                     s = `[조건: ${preconditions[idx]}]\n${s}`;
                 }
 
-                // [핵심] 비고가 다르면 Step 텍스트 앞에 붙임
+                // [수정 2] 비고는 맨 뒤에 (줄바꿈 3개)
                 if (!isAllNotesSame && notes[idx]) {
-                    s = `[비고: ${notes[idx]}]\n${s}`;
+                    s = `${s}\n\n\n[비고: ${notes[idx]}]`;
                 }
 
                 testCase.steps.push({
                     id: Math.random().toString(36).substr(2, 9),
-                    step: s || '', // null 방지
+                    step: s || '',
                     expected: e || ''
                 });
             });

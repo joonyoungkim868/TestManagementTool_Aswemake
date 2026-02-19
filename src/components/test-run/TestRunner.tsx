@@ -14,6 +14,7 @@ import { RunCreationModal } from './RunCreationModal';
 import { ReportModal } from './ReportModal';
 import { useLayout } from '../layout/MainLayout';
 import { useSearchParams } from 'react-router-dom';
+import { StepRenderer } from '../common/StepRenderer';
 
 // UI용 타입 확장
 interface TestCaseWithSection extends TestCase {
@@ -651,7 +652,10 @@ export const TestRunner = () => {
                                     {activeCase.steps.map((step, i) => (
                                         <div key={i} className="p-3 grid grid-cols-12 gap-4 items-start text-sm hover:bg-gray-50">
                                             <div className="col-span-1 text-center text-gray-400 font-bold pt-1">{i + 1}</div>
-                                            <div className="col-span-4 whitespace-pre-wrap leading-relaxed">{formatTextWithNumbers(step.step)}</div>
+                                            <div className="col-span-4 ...">
+                                                {/* 기존: {formatTextWithNumbers(step.step)} */}
+                                                <StepRenderer text={step.step} /> 
+                                            </div>
                                             <div className={`col-span-${isAppMode ? '3' : '5'} whitespace-pre-wrap leading-relaxed text-gray-600 border-l pl-4`}>{formatTextWithNumbers(step.expected)}</div>
                                             
                                             {isAppMode ? (

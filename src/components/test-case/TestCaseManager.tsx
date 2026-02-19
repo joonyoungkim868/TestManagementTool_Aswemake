@@ -12,6 +12,7 @@ import { SimpleInputModal } from '../common/SimpleInputModal';
 import { HistoryModal } from './HistoryModal';
 import { ImportExportModal } from './ImportExportModal';
 import { useLayout } from '../layout/MainLayout';
+import { StepRenderer } from '../common/StepRenderer';
 
 export const TestCaseManager = () => {
     const { activeProject, isLoading: isProjectLoading } = useLayout();
@@ -404,7 +405,12 @@ export const TestCaseManager = () => {
                                             {selectedCase.steps.map((s, idx) => (
                                                 <tr key={idx} className="hover:bg-gray-50">
                                                     <td className="p-3 text-center text-gray-400">{idx + 1}</td>
-                                                    <td className="p-3 border-r whitespace-pre-wrap">{formatTextWithNumbers(s.step)}</td>
+                                                    
+                                                    {/* ▼ [수정 위치] 기존 formatTextWithNumbers(s.step) 부분을 StepRenderer로 교체 */}
+                                                    <td className="p-3 border-r whitespace-pre-wrap">
+                                                        <StepRenderer text={s.step} />
+                                                    </td>
+                                                    
                                                     <td className="p-3 whitespace-pre-wrap">{formatTextWithNumbers(s.expected)}</td>
                                                 </tr>
                                             ))}
