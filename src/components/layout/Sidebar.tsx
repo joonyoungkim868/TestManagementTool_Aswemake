@@ -33,7 +33,7 @@ export const Sidebar = ({
                         className={`w-full text-left bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition flex justify-between items-center ${isProjectDropdownOpen ? 'ring-1 ring-blue-500' : ''}`}
                     >
                         <div>
-                            <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Active Project</div>
+                            <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Selected Project</div>
                             <div className="font-bold truncate">{activeProject?.title || 'No Project Selected'}</div>
                         </div>
                         <ChevronDown size={16} className={`text-gray-400 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`} />
