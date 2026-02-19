@@ -375,14 +375,24 @@ export class RunService {
   static async saveResult(data: Partial<TestResult>) {
     if (USE_SUPABASE) {
         const targetDevice = data.device_platform || 'PC';
-      
-        const { data: existing } = await supabase
-            .from('testResults')
-            .select('*')
-            .eq('runId', data.runId)
-            .eq('caseId', data.caseId)
-            .eq('device_platform', targetDevice) // 플랫폼별로 결과 조회
-            .maybeSingle();
+        
+        let existing = null;
+
+        // 1. [기존 버그 해결] 프론트엔드에 id가 있다면 무조건 id로 조회
+        if (data.id && data.id !== 'temp') {
+            const { data: res } = await supabase.from('testResults').select('*').eq('id', data.id).maybeSingle();
+            existing = res;
+        } else {
+            // 신규일 경우 복합키로 조회
+            const { data: res } = await supabase
+                .from('testResults')
+                .select('*')
+                .eq('runId', data.runId)
+                .eq('caseId', data.caseId)
+                .eq('device_platform', targetDevice)
+                .maybeSingle();
+            existing = res;
+        }
         
         let history: ExecutionHistoryItem[] = existing?.history || [];
         if (existing && existing.status !== 'UNTESTED') {
@@ -398,20 +408,49 @@ export class RunService {
         }
 
         const payload = { 
-        ...data, 
-        device_platform: targetDevice,
-        history, 
-        timestamp: now() 
+          runId: data.runId,
+          caseId: data.caseId,
+          status: data.status,
+          actualResult: data.actualResult,
+          comment: data.comment,
+          testerId: data.testerId,
+          stepResults: data.stepResults,
+          issues: data.issues,
+          device_platform: targetDevice,
+          history, 
+          timestamp: now() 
         };
         
         if (existing) {
-        await supabase.from('testResults').update(payload).eq('id', existing.id);
-      } else {
-        await supabase.from('testResults').insert({ id: generateId(), ...payload });
-      }
-      
+          // 기존 데이터 UPDATE
+          await supabase.from('testResults').update(payload).eq('id', existing.id);
+        } else {
+          // 2. 신규 생성 (UNTESTED 상태에서 첫 클릭 시)
+          const newId = (data.id && data.id !== 'temp') ? data.id : generateId();
+          const { error } = await supabase.from('testResults').insert({ id: newId, ...payload });
+          
+          // 3. [동시성 409 에러 해결]
+          // 빠르게 여러 Step을 눌러서 다른 요청이 이미 INSERT를 선점했다면 (23505 에러 또는 409 발생)
+          // 실패시키지 않고, 선점된 Row의 ID를 찾아내서 조용히 UPDATE로 재시도합니다.
+          if (error && (error.code === '23505' || error.message?.includes('duplicate'))) {
+             console.warn("Concurrent insert detected. Retrying as update...");
+             const { data: retryExisting } = await supabase
+                .from('testResults')
+                .select('id')
+                .eq('runId', data.runId)
+                .eq('caseId', data.caseId)
+                .eq('device_platform', targetDevice)
+                .maybeSingle();
+                
+             if (retryExisting) {
+                 await supabase.from('testResults').update(payload).eq('id', retryExisting.id);
+             }
+          } else if (error) {
+             console.error("Save result failed:", error);
+          }
+        }
     } else {
-        // LocalStorage Fallback logic can be added here if needed
+        // LocalStorage Fallback logic
     }
   }
 }
