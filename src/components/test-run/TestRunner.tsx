@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
 import {
     PlayCircle, Trash2, ArrowLeft, ChevronUp, ChevronDown, BarChart2,
     AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, Bug, RotateCcw, Loader2, FileText,
@@ -339,6 +339,16 @@ export const TestRunner = () => {
     const [iosResult, setIosResult] = useState<Partial<TestResult>>({});
     const [aosResult, setAosResult] = useState<Partial<TestResult>>({});
 
+    // [New] 최신 상태를 실시간으로 추적할 Ref 추가 (동시 클릭 버그 방지)
+    const pcRef = useRef(pcResult);
+    const iosRef = useRef(iosResult);
+    const aosRef = useRef(aosResult);
+
+    // [New] State가 바뀔 때마다 Ref도 즉시 동기화
+    useEffect(() => { pcRef.current = pcResult; }, [pcResult]);
+    useEffect(() => { iosRef.current = iosResult; }, [iosResult]);
+    useEffect(() => { aosRef.current = aosResult; }, [aosResult]);
+
     const [loading, setLoading] = useState(true);
     
     const loadRuns = async () => {
@@ -428,17 +438,25 @@ export const TestRunner = () => {
 
     }, [activeCaseIndex, runResults, runCases]);
 
-    // 1. [로컬 최적화] 입력 렌더링용: API 요청 안 함
+    // 1. 로컬 상태 업데이트 (State와 Ref 동시 업데이트)
     const updateLocalState = (platform: DevicePlatform, field: keyof TestResult, value: any) => {
-        const setTargetState = platform === 'iOS' ? setIosResult : platform === 'Android' ? setAosResult : setPcResult;
-        setTargetState(prev => ({ ...prev, [field]: value }));
+        if (platform === 'PC') {
+            setPcResult(prev => ({ ...prev, [field]: value }));
+            pcRef.current = { ...pcRef.current, [field]: value }; // 즉시 반영
+        } else if (platform === 'iOS') {
+            setIosResult(prev => ({ ...prev, [field]: value }));
+            iosRef.current = { ...iosRef.current, [field]: value };
+        } else {
+            setAosResult(prev => ({ ...prev, [field]: value }));
+            aosRef.current = { ...aosRef.current, [field]: value };
+        }
     };
 
-    // 2. [저장 전용] onBlur 발동 시 서버에 저장
+    // 2. 저장 전용 (onBlur 발동 시) -> Ref를 사용하여 무조건 최신 데이터 전송
     const saveToBackend = async (platform: DevicePlatform) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         const currentCase = runCases[activeCaseIndex];
-        const targetState = platform === 'iOS' ? iosResult : platform === 'Android' ? aosResult : pcResult;
+        const targetState = platform === 'iOS' ? iosRef.current : platform === 'Android' ? aosRef.current : pcRef.current;
 
         const payload: Partial<TestResult> = {
             runId: selectedRun.id,
@@ -452,22 +470,23 @@ export const TestRunner = () => {
         RunService.getResults(selectedRun.id).then(setRunResults);
     };
 
-    // 3. 상태 버튼 (PASS/FAIL 등) 클릭 시 즉시 반영 및 저장
+    // 3. 상태 버튼(PASS/FAIL) 업데이트
     const handleStatusUpdate = async (platform: DevicePlatform, newStatus: TestStatus) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         
-        const setTargetState = platform === 'iOS' ? setIosResult : platform === 'Android' ? setAosResult : setPcResult;
-        setTargetState(prev => ({ ...prev, status: newStatus }));
+        // 로컬 업데이트
+        updateLocalState(platform, 'status', newStatus);
 
         const currentCase = runCases[activeCaseIndex];
-        const targetState = platform === 'iOS' ? iosResult : platform === 'Android' ? aosResult : pcResult;
+        // [핵심] State 대신 최신 Ref를 가져옴
+        const targetState = platform === 'iOS' ? iosRef.current : platform === 'Android' ? aosRef.current : pcRef.current;
 
         const payload: Partial<TestResult> = {
             runId: selectedRun.id,
             caseId: currentCase.id,
             device_platform: platform,
             testerId: user?.id,
-            ...targetState,
+            ...targetState, 
             status: newStatus 
         };
         
@@ -475,54 +494,43 @@ export const TestRunner = () => {
         RunService.getResults(selectedRun.id).then(setRunResults);
     };
 
+    // 4. 스텝별 결과 업데이트
     const handleStepUpdate = async (platform: DevicePlatform, stepId: string, newStatus: TestStatus) => {
         if (!selectedRun || !runCases[activeCaseIndex]) return;
         const currentCase = runCases[activeCaseIndex];
 
-        let targetState = platform === 'iOS' ? iosResult : platform === 'Android' ? aosResult : pcResult;
-        const setTargetState = platform === 'iOS' ? setIosResult : platform === 'Android' ? setAosResult : setPcResult;
-
+        // [핵심] State 대신 최신 Ref를 가져옴
+        const targetState = platform === 'iOS' ? iosRef.current : platform === 'Android' ? aosRef.current : pcRef.current;
         const currentSteps = targetState.stepResults || [];
+        
         const updatedSteps = currentSteps.filter(s => s.stepId !== stepId);
         updatedSteps.push({ stepId, status: newStatus });
 
+        // (자동 계산 로직은 기존과 동일)
         const totalSteps = currentCase.steps.length;
         const validResults = updatedSteps.filter(s => s.status !== 'UNTESTED');
-        
         let calculatedStatus: TestStatus = 'UNTESTED';
-
         const hasFail = validResults.some(s => s.status === 'FAIL');
         const hasBlock = validResults.some(s => s.status === 'BLOCK');
         const hasNA = validResults.some(s => s.status === 'NA');
 
-        if (hasFail) {
-            calculatedStatus = 'FAIL';
-        } else if (hasBlock) {
-            calculatedStatus = 'BLOCK';
-        } else if (hasNA) {
-            calculatedStatus = 'NA';
-        } else {
-            if (validResults.length >= totalSteps) {
-                calculatedStatus = 'PASS';
-            } else {
-                calculatedStatus = 'UNTESTED';
-            }
-        }
+        if (hasFail) calculatedStatus = 'FAIL';
+        else if (hasBlock) calculatedStatus = 'BLOCK';
+        else if (hasNA) calculatedStatus = 'NA';
+        else if (validResults.length >= totalSteps) calculatedStatus = 'PASS';
 
-        const updatedResult = { 
-            ...targetState, 
-            stepResults: updatedSteps, 
-            status: calculatedStatus 
-        };
-        
-        setTargetState(updatedResult);
+        // 로컬 업데이트
+        updateLocalState(platform, 'stepResults', updatedSteps);
+        updateLocalState(platform, 'status', calculatedStatus);
 
         const payload: Partial<TestResult> = {
             runId: selectedRun.id,
             caseId: currentCase.id,
             device_platform: platform,
             testerId: user?.id,
-            ...updatedResult
+            ...targetState,
+            stepResults: updatedSteps,
+            status: calculatedStatus
         };
         
         await RunService.saveResult(payload);
