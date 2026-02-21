@@ -6,12 +6,10 @@ DROP TABLE IF EXISTS "sections" CASCADE;
 DROP TABLE IF EXISTS "documents" CASCADE;
 DROP TABLE IF EXISTS "folders" CASCADE;
 DROP TABLE IF EXISTS "historyLogs" CASCADE;
--- Users table is usually managed by Supabase Auth, but if using custom table:
--- DROP TABLE IF EXISTS users CASCADE; 
 
--- 1. Users (Helper table if not using built-in Auth)
+-- 1. Users (기존 테이블을 유지하되, 만약 새로 만든다면 TEXT 타입으로 생성)
 CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   name TEXT,
   role TEXT DEFAULT 'INTERNAL', 
@@ -22,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE folders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
-  desc TEXT,
+  "desc" TEXT, 
   "parentId" UUID REFERENCES folders(id) ON DELETE CASCADE, 
   "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
@@ -43,7 +41,7 @@ CREATE TABLE sections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   "documentId" UUID REFERENCES documents(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
-  "parentId" UUID, -- Nested logic can be implemented later
+  "parentId" UUID,
   "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
@@ -57,7 +55,7 @@ CREATE TABLE "testCases" (
   steps JSONB DEFAULT '[]',
   priority TEXT DEFAULT 'MEDIUM',
   type TEXT DEFAULT 'FUNCTIONAL',
-  "authorId" UUID REFERENCES users(id),
+  "authorId" TEXT REFERENCES users(id), -- [수정됨] UUID -> TEXT
   "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   seq_id SERIAL,
@@ -90,7 +88,7 @@ CREATE TABLE "testResults" (
   issues JSONB DEFAULT '[]', 
   "stepResults" JSONB DEFAULT '[]',
   "device_platform" TEXT DEFAULT 'PC',
-  "testerId" UUID REFERENCES users(id),
+  "testerId" TEXT REFERENCES users(id), -- [수정됨] UUID -> TEXT
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   history JSONB DEFAULT '[]'
 );
@@ -101,7 +99,7 @@ CREATE TABLE "historyLogs" (
   "entityType" TEXT,
   "entityId" UUID,
   action TEXT,
-  "modifierId" UUID REFERENCES users(id),
+  "modifierId" TEXT REFERENCES users(id), -- [수정됨] UUID -> TEXT
   "modifierName" TEXT,
   changes JSONB DEFAULT '[]',
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
@@ -113,10 +111,10 @@ RETURNS TABLE (doc_id UUID) AS $$
 BEGIN
     RETURN QUERY
     WITH RECURSIVE folder_tree AS (
-        -- Base case: the target folder itself
+        -- Base case
         SELECT id FROM folders WHERE id = target_folder_id
         UNION ALL
-        -- Recursive case: children of folders in the tree
+        -- Recursive case
         SELECT f.id FROM folders f
         INNER JOIN folder_tree ft ON f."parentId" = ft.id
     )
