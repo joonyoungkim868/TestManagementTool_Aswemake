@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthContext } from './context/AuthContext';
 import { User } from './types';
 import { AuthService } from './storage';
+import { AdminPanel } from './components/admin/AdminPanel';
 
 // Components
 import { LoginScreen } from './components/auth/LoginScreen';
@@ -84,6 +85,7 @@ const App = () => {
                         <Route path="drive/*" element={<DriveExplorer />} />
                         <Route path="runs" element={<RunnerList />} />
                         <Route path="runs/:runId" element={<TestRunner />} />
+                        <Route path="admin" element={<AdminPanel />} />
 
                     </Route>
 
