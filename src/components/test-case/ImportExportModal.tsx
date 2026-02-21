@@ -1,30 +1,31 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { ArrowRightLeft, FileText, Bug, Download, AlertTriangle, Upload, Smartphone, Monitor } from 'lucide-react';
-import { TestCase, Section, Project } from '@/src/types';
+import { TestCase, Section } from '@/src/types';
 import { TestCaseService } from '@/src/storage';
 import { AuthContext } from '../../context/AuthContext';
 import { parseCSV, exportToCSV, exportToJSON } from '../../utils/csvHelpers';
 import { normalizePriority, normalizeType } from '../../utils/formatters';
 
 export const ImportExportModal = ({
-    isOpen, onClose, project, cases, sections, onImportSuccess
+    isOpen, onClose, documentId, cases, sections, onImportSuccess
 }: {
-    isOpen: boolean, onClose: () => void, project: Project, cases: TestCase[], sections: Section[], onImportSuccess: () => void
+    isOpen: boolean, onClose: () => void, documentId: string, cases: TestCase[], sections: Section[], onImportSuccess: () => void
 }) => {
     const { user } = useContext(AuthContext);
     const [tab, setTab] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
     const [step, setStep] = useState<'UPLOAD' | 'MAP'>('UPLOAD');
-    
+
     // Import 모드 상태 (WEB: 단일 / APP: iOS+Android)
     const [importMode, setImportMode] = useState<'WEB' | 'APP'>('WEB');
 
     const [csvMatrix, setCsvMatrix] = useState<string[][]>([]);
     const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
     const [mapping, setMapping] = useState<Record<string, number>>({});
-    const [headerRowIndex, setHeaderRowIndex] = useState(0); 
+    const [headerRowIndex, setHeaderRowIndex] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [importing, setImporting] = useState(false);
 
+    // [복구됨] 한국어 UI 필드 명칭
     const APP_FIELDS = [
         { key: 'section', label: '섹션 (Section/Folder)', required: false },
         { key: 'title', label: '제목 (Title)', required: true },
@@ -43,7 +44,7 @@ export const ImportExportModal = ({
             setCsvMatrix([]);
             setMapping({});
             setHeaderRowIndex(0);
-            setImportMode('WEB'); // 초기화
+            setImportMode('WEB');
         }
     }, [isOpen]);
 
@@ -72,7 +73,9 @@ export const ImportExportModal = ({
             let bestIndex = 0;
             let bestScore = -1;
             const SCAN_LIMIT = Math.min(rows.length, 20);
-            const KEYWORDS = ['title', '제목', 'section', '섹션', 'folder', '폴더', 'priority', '우선순위', '중요도', 'type', '유형', 'step', '단계', '절차', 'expected', '기대', '결과', 'note', '비고', '노트', 'remarks'];
+            
+            // [복구됨] 한국어 키워드 매핑 로직
+            const KEYWORDS = ['title', '제목', 'section', '섹션', 'folder', '폴더', 'priority', '우선순위', '중요도', 'type', '유형', 'step', '단계', '절차', 'expected', '기대', '결과', 'note', '비고', '노트', 'remarks', 'precondition', '사전'];
 
             for (let i = 0; i < SCAN_LIMIT; i++) {
                 const row = rows[i];
@@ -107,7 +110,6 @@ export const ImportExportModal = ({
             const headers = rows[bestIndex];
             setCsvHeaders(headers);
 
-            // 헤더 기반 플랫폼 자동 감지 로직
             const isAppCsv = headers.some(h => {
                 if (!h) return false;
                 const val = String(h).toLowerCase();
@@ -117,6 +119,7 @@ export const ImportExportModal = ({
                 setImportMode('APP');
             }
 
+            // [복구됨] 한국어 헤더 자동 매핑 연결
             const initialMapping: Record<string, number> = {};
             headers.forEach((h, idx) => {
                 if (!h) return;
@@ -137,7 +140,7 @@ export const ImportExportModal = ({
         }
     };
 
-    // [수정된 부분] 그룹핑 로직 및 조건부 데이터 할당 적용
+    // [복구됨] 그룹핑 로직 및 조건부 데이터 할당 적용
     const finalizeImport = async () => {
         if (!user) return;
         if (mapping['title'] === undefined) {
@@ -153,18 +156,15 @@ export const ImportExportModal = ({
 
         for (let i = headerRowIndex + 1; i < csvMatrix.length; i++) {
             const row = csvMatrix[i];
-            // 빈 행 건너뛰기
             if (row.length === 0 || !row.some(c => c && c.trim() !== '')) continue;
             
             const titleVal = row[mapping['title']] || '';
 
             if (titleVal && titleVal.trim() !== '') {
-                // 새로운 그룹(케이스) 시작
                 currentGroup = { title: titleVal, rows: [] };
                 groupedData.push(currentGroup);
             }
             
-            // 현재 그룹에 행 추가 (제목이 없는 연속된 행도 현재 그룹에 포함)
             if (currentGroup) {
                 currentGroup.rows.push(row);
             }
@@ -194,7 +194,7 @@ export const ImportExportModal = ({
             const isAllPreconditionsSame = preconditions.every(p => p === preconditions[0]);
             const isAllNotesSame = notes.every(n => n === notes[0]);
 
-            // C. 케이스 메타 정보 생성 (첫 번째 행 기준)
+            // C. 케이스 메타 정보 생성
             const firstRow = rows[0]; 
             const getVal = (key: string, r: string[] = firstRow) => {
                  const idx = mapping[key];
@@ -206,7 +206,7 @@ export const ImportExportModal = ({
                 title: title,
                 priority: normalizePriority(getVal('priority')),
                 type: normalizeType(getVal('type')),
-                platform_type: importMode, // 선택된 모드(WEB/APP) 저장
+                platform_type: importMode,
                 
                 // [핵심] 모두 같으면 공통 영역에 표시, 하나라도 다르면 비워둠(숨김)
                 precondition: isAllPreconditionsSame ? preconditions[0] : '',
@@ -215,20 +215,17 @@ export const ImportExportModal = ({
                 steps: [] as any[]
             };
 
-            // D. Step 생성 및 텍스트 병합 (Condition/Note Injection)
+            // D. Step 생성 및 텍스트 병합
             rows.forEach((r, idx) => {
                 let s = getVal('step', r);
                 const e = getVal('expected', r);
                 
                 if ((!s || !s.trim()) && (!e || !e.trim())) return;
 
-                // [수정 1] 조건은 맨 앞에 (줄바꿈 하나)
                 if (!isAllPreconditionsSame && preconditions[idx]) {
-                    // "1. ..." 포맷이 깨지지 않도록 [조건: 1. ...] 형태로 붙임
                     s = `[조건: ${preconditions[idx]}]\n${s}`;
                 }
 
-                // [수정 2] 비고는 맨 뒤에 (줄바꿈 3개)
                 if (!isAllNotesSame && notes[idx]) {
                     s = `${s}\n\n\n[비고: ${notes[idx]}]`;
                 }
@@ -251,7 +248,7 @@ export const ImportExportModal = ({
         }
 
         setImporting(true);
-        await (TestCaseService as any).importCases(project.id, newCases, user);
+        await (TestCaseService as any).importCases(documentId, newCases, user);
         setImporting(false);
         onImportSuccess();
         onClose();
@@ -260,7 +257,7 @@ export const ImportExportModal = ({
 
     const getPreviewRow = () => {
         if (csvMatrix.length <= headerRowIndex + 1) return null;
-
+        
         const titleIdx = mapping['title'];
         if (titleIdx !== undefined) {
             for (let i = headerRowIndex + 1; i < Math.min(csvMatrix.length, headerRowIndex + 6); i++) {
@@ -271,7 +268,7 @@ export const ImportExportModal = ({
         }
 
         if (csvMatrix.length > headerRowIndex + 1 && csvMatrix[headerRowIndex + 1].some(cell => cell && cell.trim() !== '')) return csvMatrix[headerRowIndex + 1];
-
+        
         return csvMatrix[headerRowIndex + 1];
     };
 
@@ -282,8 +279,8 @@ export const ImportExportModal = ({
             <div className="bg-white rounded-lg shadow-xl p-6 w-[800px] h-[650px] flex flex-col">
                 <h3 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2"><ArrowRightLeft size={20} /> 데이터 가져오기 / 내보내기</h3>
                 <div className="flex gap-1 bg-gray-100 p-1 rounded mb-4">
-                    <button className={`flex-1 py-1.5 rounded text-sm font-semibold transition ${tab === 'EXPORT' ? 'bg-white shadow text-primary' : 'text-gray-500 hover:bg-gray-200'}`} onClick={() => setTab('EXPORT')}>내보내기 (Export)</button>
-                    <button className={`flex-1 py-1.5 rounded text-sm font-semibold transition ${tab === 'IMPORT' ? 'bg-white shadow text-primary' : 'text-gray-500 hover:bg-gray-200'}`} onClick={() => setTab('IMPORT')}>가져오기 (Import)</button>
+                    <button className={`flex-1 py-1.5 rounded text-sm font-semibold transition ${tab === 'EXPORT' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:bg-gray-200'}`} onClick={() => setTab('EXPORT')}>내보내기 (Export)</button>
+                    <button className={`flex-1 py-1.5 rounded text-sm font-semibold transition ${tab === 'IMPORT' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:bg-gray-200'}`} onClick={() => setTab('IMPORT')}>가져오기 (Import)</button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {tab === 'EXPORT' ? (
@@ -301,26 +298,25 @@ export const ImportExportModal = ({
                         </div>
                     ) : (
                         <div className="h-full flex flex-col">
-                            {/* Import Mode Toggle UI */}
                             <div className="flex items-center gap-6 mb-4 bg-gray-50 p-3 rounded border border-gray-200">
                                 <span className="font-bold text-sm text-gray-700">테스트 타입:</span>
-                                <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'WEB' ? 'text-primary font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
-                                    <input 
-                                        type="radio" 
+                                <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'WEB' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    <input
+                                        type="radio"
                                         name="importMode"
-                                        checked={importMode === 'WEB'} 
-                                        onChange={() => setImportMode('WEB')} 
-                                        className="accent-primary"
+                                        checked={importMode === 'WEB'}
+                                        onChange={() => setImportMode('WEB')}
+                                        className="accent-blue-600"
                                     />
                                     <span className="text-sm flex items-center gap-1"><Monitor size={14} /> WEB (단일 환경)</span>
                                 </label>
-                                <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'APP' ? 'text-primary font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
-                                    <input 
-                                        type="radio" 
+                                <label className={`flex items-center gap-2 cursor-pointer ${importMode === 'APP' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    <input
+                                        type="radio"
                                         name="importMode"
-                                        checked={importMode === 'APP'} 
-                                        onChange={() => setImportMode('APP')} 
-                                        className="accent-primary"
+                                        checked={importMode === 'APP'}
+                                        onChange={() => setImportMode('APP')}
+                                        className="accent-blue-600"
                                     />
                                     <span className="text-sm flex items-center gap-1"><Smartphone size={14} /> APP (iOS/Android 병렬)</span>
                                 </label>
@@ -333,18 +329,18 @@ export const ImportExportModal = ({
                                         CSV 파일을 업로드하면 <strong>컬럼 매핑 단계</strong>로 이동합니다. 첫 번째 행(Header)을 기준으로 매핑을 시도합니다.
                                         <br/>헤더에 'iOS', 'AOS', 'Android' 등이 포함되어 있으면 자동으로 <strong>APP 모드</strong>로 전환됩니다.
                                     </div>
-                                    <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-gray-300 rounded-lg p-10 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-primary cursor-pointer transition group">
-                                        <Upload size={48} className="mb-4 text-gray-400 group-hover:text-primary transition-colors" />
-                                        <span className="text-lg font-bold text-gray-600 group-hover:text-primary">CSV 파일 업로드</span>
+                                    <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-gray-300 rounded-lg p-10 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-blue-400 cursor-pointer transition group">
+                                        <Upload size={48} className="mb-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                                        <span className="text-lg font-bold text-gray-600 group-hover:text-blue-500">CSV 파일 업로드</span>
                                         <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleFileUpload} />
                                     </div>
                                     <div className="flex-1 flex flex-col">
                                         <textarea
-                                            className="flex-1 w-full border rounded p-3 text-sm font-mono bg-gray-50 focus:bg-white focus:ring-2 focus:ring-primary outline-none resize-none"
+                                            className="flex-1 w-full border rounded p-3 text-sm font-mono bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                                             placeholder={`Section,Title,Priority,Type\n"Auth","Login Test","HIGH","FUNCTIONAL"`}
                                             onPaste={(e) => { e.preventDefault(); const text = e.clipboardData.getData('text'); processCsvText(text); }}
                                         />
-                                        <p className="text-xs text-center text-gray-400 mt-2">위 영역에 붙여넣기 하면 자동으로 분석합니다.</p>
+                                        <p className="text-xs text-center text-gray-400 mt-2">위 영역에 텍스트를 붙여넣기 하면 자동으로 분석합니다.</p>
                                     </div>
                                 </div>
                             ) : (
@@ -386,8 +382,8 @@ export const ImportExportModal = ({
                 <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
                     <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">닫기</button>
                     {tab === 'IMPORT' && step === 'MAP' && (
-                        <button disabled={importing} onClick={finalizeImport} className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-600 font-bold flex items-center gap-2 disabled:opacity-50">
-                            {importing ? '처리 중...' : <><Download size={16} /> 가져오기 완료</>}
+                        <button disabled={importing} onClick={finalizeImport} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold flex items-center gap-2 disabled:opacity-50">
+                            {importing ? '가져오는 중...' : <><Download size={16} /> 가져오기 완료</>}
                         </button>
                     )}
                 </div>

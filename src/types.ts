@@ -1,31 +1,42 @@
 export type Role = 'ADMIN' | 'INTERNAL' | 'EXTERNAL';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
-export type ProjectStatus = 'ACTIVE' | 'ARCHIVED';
+export type ProjectStatus = 'ACTIVE' | 'ARCHIVED'; // Deprecated but kept for type compatibility during migration if needed
 export type TestStatus = 'PASS' | 'FAIL' | 'BLOCK' | 'NA' | 'UNTESTED';
 export type CasePriority = 'HIGH' | 'MEDIUM' | 'LOW';
 export type CaseType = 'FUNCTIONAL' | 'UI' | 'PERFORMANCE' | 'SECURITY';
-export type PlatformType = 'WEB' | 'APP'; // 케이스 성격
-export type DevicePlatform = 'PC' | 'iOS' | 'Android'; // 실제 실행 환경
+export type PlatformType = 'WEB' | 'APP';
+export type DevicePlatform = 'PC' | 'iOS' | 'Android';
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: Role;
-  status: UserStatus; // [수정] 이 부분이 추가되어야 합니다.
+  status: UserStatus;
 }
 
-export interface Project {
+// [NEW] Folder Interface
+export interface Folder {
   id: string;
-  title: string;
-  description: string;
-  status: ProjectStatus;
+  name: string;
+  desc?: string;
+  parentId: string | null; // Root folders have null
   createdAt: string;
+}
+
+// [NEW] Document Interface (Replaces Project)
+export interface Document {
+  id: string;
+  folderId: string;
+  title: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Section {
   id: string;
-  projectId: string;
+  documentId: string; // [CHANGED] projectId -> documentId
   title: string;
   parentId?: string | null;
 }
@@ -44,10 +55,10 @@ export interface Issue {
 
 export interface HistoryLog {
   id: string;
-  entityType?: 'CASE' | 'RESULT'; // Optional로 변경하거나 storage.ts 로직에 맞춤
+  entityType?: 'CASE' | 'RESULT';
   entityId: string;
-  action: string; // 'CREATE' | 'UPDATE' ... 등 유연하게 처리
-  modifierId: string; // 혹은 modifierName 등
+  action: string;
+  modifierId: string;
   modifierName: string;
   changes: any[];
   timestamp: string;
@@ -56,7 +67,7 @@ export interface HistoryLog {
 export interface TestCase {
   id: string;
   sectionId: string;
-  projectId: string;
+  documentId: string; // [CHANGED] projectId -> documentId
   title: string;
   precondition: string;
   steps: TestStep[];
@@ -65,21 +76,30 @@ export interface TestCase {
   authorId: string;
   createdAt: string;
   updatedAt: string;
-  sectionTitle?: string; // UI용 확장 필드
-  seq_id?: number; // 정렬용 시퀀스 ID
-  note?: string; // 비고
-  platform_type?: PlatformType; // 케이스 성격 (WEB, APP)
+  sectionTitle?: string;
+  seq_id?: number;
+  note?: string;
+  platform_type?: PlatformType;
 }
 
 export interface TestRun {
   id: string;
-  projectId: string;
   title: string;
+  description?: string;
   status: 'OPEN' | 'COMPLETED';
-  assignedToId?: string;
+
+  // [CHANGED] Multi-document support
+  target_document_ids: string[]; // JSONB array in DB
+
+  // [NEW] Metadata
+  phase: string;
+  assignees: string[]; // User IDs
+
+  // [NEW] Snapshot
+  snapshot_data?: any; // Full dump of state at completion
+
   createdAt: string;
-  caseIds: string[];
-  seq_id?: number; // 정렬용 시퀀스 ID
+  completedAt?: string;
 }
 
 export interface ExecutionHistoryItem {
@@ -104,5 +124,5 @@ export interface TestResult {
   stepResults?: { stepId: string; status: TestStatus }[];
   issues?: Issue[];
   history?: ExecutionHistoryItem[];
-  device_platform?: DevicePlatform; // 테스트 실행 환경 (PC, iOS, Android)
+  device_platform?: DevicePlatform;
 }
