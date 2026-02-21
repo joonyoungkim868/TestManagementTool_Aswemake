@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Search, Loader2, PlayCircle, FolderOpen, CheckCircle, BarChart2, Plus, Users, Calendar, Filter, Archive } from 'lucide-react';
+import { Search, Loader2, PlayCircle, FolderOpen, CheckCircle, BarChart2, Plus, Users, Calendar, Filter, Archive, Trash2 } from 'lucide-react';
 import { TestRun, User } from '@/src/types';
 import { RunService, AuthService } from '@/src/storage';
 import { useNavigate } from 'react-router-dom';
@@ -45,6 +44,15 @@ export const RunnerList = () => {
     useEffect(() => {
         loadData();
     }, []);
+
+    // [신규 추가] 테스트 실행 삭제 핸들러
+    const handleDeleteRun = async (runId: string, e: React.MouseEvent) => {
+        e.stopPropagation(); // 카드 클릭 시 상세 페이지로 이동하는 이벤트 방지
+        if (window.confirm("이 테스트 실행(Test Run)을 삭제하시겠습니까?\n관련된 테스트 결과가 모두 영구 삭제됩니다.")) {
+            await RunService.delete(runId);
+            loadData(); // 삭제 후 리스트 새로고침
+        }
+    };
 
     // Derived Filters
     const uniquePhases = Array.from(new Set(runs.map(r => r.phase).filter(Boolean)));
@@ -159,15 +167,25 @@ export const RunnerList = () => {
                             className="bg-white rounded-xl border shadow-sm hover:shadow-md transition cursor-pointer group flex flex-col overflow-hidden"
                         >
                             <div className="p-5 flex-1">
+                                {/* [신규 추가] 상태 영역 + 삭제 버튼 배치 */}
                                 <div className="flex justify-between items-start mb-3">
-                                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wide ${run.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                                        {run.status}
-                                    </span>
-                                    {run.phase && (
-                                        <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-100 font-bold">
-                                            {run.phase}
+                                    <div className="flex gap-2">
+                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wide ${run.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                            {run.status}
                                         </span>
-                                    )}
+                                        {run.phase && (
+                                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-100 font-bold">
+                                                {run.phase}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <button 
+                                        onClick={(e) => handleDeleteRun(run.id, e)} 
+                                        className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded transition opacity-0 group-hover:opacity-100"
+                                        title="Delete Test Run"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
                                 </div>
                                 <h3 className="font-bold text-lg text-gray-800 mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
                                     {run.title}

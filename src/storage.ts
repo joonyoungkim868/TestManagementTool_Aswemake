@@ -329,6 +329,10 @@ export class RunService {
   }
 
   static async delete(runId: string): Promise<void> {
+    // 1. 하위 데이터(테스트 결과)를 먼저 삭제하여 409 Conflict 방지
+    await supabase.from('testResults').delete().eq('runId', runId);
+    
+    // 2. 그 다음 실행 계획 본체 삭제
     await supabase.from('testRuns').delete().eq('id', runId);
   }
 
