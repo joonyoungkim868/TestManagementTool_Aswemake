@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useContext } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
     Folder, FileText, Plus, MoreVertical, Grid, List as ListIcon,
     ChevronRight, Search, Trash2, Edit2, Copy, LayoutDashboard
@@ -80,7 +80,7 @@ export default function DriveExplorer() {
             items.unshift({ id: f.id, name: f.name, onClick: () => navigate(`/drive/${f.id}`) });
             curr = allFolders.find(p => p.id === f.parentId);
         }
-        return items; // Home is handled by Breadcrumbs component prop
+        return items;
     };
 
     // Actions
@@ -95,16 +95,10 @@ export default function DriveExplorer() {
         setDocModalMode('RENAME');
         setDocModalType(type);
         setDocModalInitialName(type === 'FOLDER' ? item.name : item.title);
-        // We stash the ID in a ref or just use contextMenu item if it's open, 
-        // but context menu closes on click. So we need state or use the passed item.
-        // Let's use a ref for the "active action item" or just reuse itemToDelete state structure
-        // Actually best to have `editingItem` state.
-        setItemToDelete({ id: item.id, name: type === 'FOLDER' ? item.name : item.title, type }); // Reuse or create new state?
-        // Let's create `editingItem` to be safe/clear.
+        setItemToDelete({ id: item.id, name: type === 'FOLDER' ? item.name : item.title, type });
         setDocModalOpen(true);
     };
 
-    // State for editing
     const [editingItem, setEditingItem] = useState<{ id: string, type: 'FOLDER' | 'DOCUMENT' } | null>(null);
 
     const onModalSubmit = async (type: 'FOLDER' | 'DOCUMENT', name: string) => {
@@ -112,27 +106,13 @@ export default function DriveExplorer() {
             if (type === 'FOLDER') {
                 await DriveService.createFolder(name, currentFolderId);
             } else {
-                await DriveService.createDocument(name, currentFolderId || ''); // Document needs folder? Schema says folderId implies parent. 
-                // Wait, Schema: documents(folderId UUID). 
-                // If at root (currentFolderId === null), what do we do?
-                // Schema enforce folderId? Let's check. 
-                // DB Guide says recursive structure. 
-                // If root docs allowed, folderId can be null? 
-                // My storage.ts: createDocument expects folderId string.
-                // I should allow null if root docs valid. 
-                // Let's assume root docs NOT allowed for now or I need a "Root" folder id.
-                // Or just pass null if backend handles it. storage.ts says `folderId` is passed to insert.
-                // If currentFolderId is null, strict typing might fail.
-                // For now pass currentFolderId || 'root' or handle in service?
-                // Let's assume user must be in a folder to create doc, OR generic "General" folder exists.
                 if (!currentFolderId) {
-                    alert("Please select a folder to create a document.");
+                    alert("문서를 생성할 폴더를 먼저 선택해 주세요."); // 한글 안내문구로 변경
                     return;
                 }
                 await DriveService.createDocument(name, currentFolderId);
             }
         } else {
-            // Rename
             if (editingItem?.type === 'FOLDER') {
                 await DriveService.renameFolder(editingItem.id, name);
             } else if (editingItem) {
@@ -144,8 +124,8 @@ export default function DriveExplorer() {
 
     const handleDuplicate = async (doc: Document) => {
         if (!user) return;
-        const newName = `${doc.title} (Copy)`;
-        if (window.confirm(`Duplicate "${doc.title}"?`)) {
+        const newName = `${doc.title} (복사본)`; // 한글화
+        if (window.confirm(`"${doc.title}" 문서를 복제하시겠습니까?`)) { // 한글화
             setLoading(true);
             await DriveService.duplicateDocument(doc.id, newName, user);
             await loadData();
@@ -171,12 +151,12 @@ export default function DriveExplorer() {
         e.preventDefault();
         e.stopPropagation();
         setContextMenu({ x: e.clientX, y: e.clientY, item, type });
-        setEditingItem({ id: item.id, type }); // Prepare for potential rename
+        setEditingItem({ id: item.id, type }); 
     };
 
     const openDashboard = (item: any, type: 'FOLDER' | 'DOCUMENT' | 'ALL' = 'ALL') => {
         if (type === 'ALL') {
-            setDashboardContext({ type: 'ALL', id: null, title: 'All Documents' });
+            setDashboardContext({ type: 'ALL', id: null, title: '전체 문서' });
         } else {
             setDashboardContext({ type, id: item.id, title: item.name || item.title });
         }
@@ -239,7 +219,7 @@ export default function DriveExplorer() {
                         {folders.length === 0 && documents.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-gray-400">
                                 <Folder size={64} className="mb-4 opacity-20" />
-                                <p>Empty Folder</p>
+                                <p>폴더가 비어있습니다.</p> {/* 한글화 */}
                             </div>
                         ) : (
                             <div className={viewMode === 'GRID' ? 'grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4' : 'space-y-2'}>
@@ -269,15 +249,7 @@ export default function DriveExplorer() {
                                 {documents.map(doc => (
                                     <div
                                         key={doc.id}
-                                        // onDoubleClick={() => navigate(`/drive/doc/${doc.id}`)} // TODO: Doc View route
-                                        // For now maybe navigate to Case Manager?
-                                        // Route in Sidebar: /projects/:id/cases -> invalid.
-                                        // Global Route: /cases/:docId? No.
-                                        // Need a route to view Document (Test Case Manager).
-                                        // Let's assume /drive/doc/:docId or something.
-                                        // Current plan: phase 4 is Test Case Manager Adaptation.
-                                        // For now, let's keep it clickable but maybe alert if route not ready.
-                                        // Or use openDashboard?
+                                        onDoubleClick={() => navigate(`/drive/doc/${doc.id}`)} // 👈 [이슈 2 해결] 주석 해제 및 라우팅 연결!
                                         onContextMenu={(e) => handleContextMenu(e, doc, 'DOCUMENT')}
                                         className={`group relative p-4 rounded-xl border hover:border-purple-400 hover:shadow-md transition cursor-pointer bg-white ${viewMode === 'LIST' ? 'flex items-center gap-4' : 'flex flex-col items-center text-center'}`}
                                     >
@@ -306,11 +278,25 @@ export default function DriveExplorer() {
                     className="fixed z-50 bg-white rounded-lg shadow-xl border w-48 py-1 animate-in fade-in zoom-in-95 duration-100"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                 >
+                    {/* 👇 [이슈 2 관련 추가] 더블클릭을 모르는 사람을 위한 '문서 열기' 버튼 */}
+                    {contextMenu.type === 'DOCUMENT' && (
+                        <button
+                            onClick={() => {
+                                navigate(`/drive/doc/${contextMenu.item.id}`);
+                                setContextMenu(null);
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-2 text-sm text-blue-700 font-bold border-b border-gray-100"
+                        >
+                            <FileText size={14} /> 문서 열기 (Open)
+                        </button>
+                    )}
+
+                    {/* 이하 메뉴명 한글화 (이슈 3) */}
                     <button
                         onClick={() => handleRename(contextMenu.item, contextMenu.type)}
                         className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 text-sm text-gray-700"
                     >
-                        <Edit2 size={14} /> Rename
+                        <Edit2 size={14} /> 이름 변경
                     </button>
 
                     {contextMenu.type === 'DOCUMENT' && (
@@ -318,23 +304,22 @@ export default function DriveExplorer() {
                             onClick={() => handleDuplicate(contextMenu.item)}
                             className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 text-sm text-gray-700"
                         >
-                            <Copy size={14} /> Duplicate
+                            <Copy size={14} /> 복사본 만들기
                         </button>
                     )}
 
-                    {/* Generic Dashboard for both Folder and Document */}
                     <button
                         onClick={() => openDashboard(contextMenu.item, contextMenu.type)}
                         className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 text-sm text-blue-600 font-medium border-t border-b border-gray-100 my-1 bg-blue-50/50"
                     >
-                        <LayoutDashboard size={14} /> Dashboard
+                        <LayoutDashboard size={14} /> 통계 대시보드
                     </button>
 
                     <button
                         onClick={() => handleDeleteClick(contextMenu.item, contextMenu.type)}
                         className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-2 text-sm text-red-600"
                     >
-                        <Trash2 size={14} /> Delete
+                        <Trash2 size={14} /> 삭제
                     </button>
                 </div>
             )}
@@ -368,4 +353,3 @@ export default function DriveExplorer() {
         </div>
     );
 }
-
