@@ -1,24 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Search, Loader2, PlayCircle, FolderOpen, CheckCircle, BarChart2, Plus, Users, Calendar, Filter, Archive, Trash2 } from 'lucide-react';
 import { TestRun, User } from '@/src/types';
 import { RunService, AuthService } from '@/src/storage';
 import { useNavigate } from 'react-router-dom';
 import { LoadingSpinner } from '../common/Loading';
 import { RunCreationDrawer } from './RunCreationDrawer';
+import { AuthContext } from '../../context/AuthContext';
 
 export const RunnerList = () => {
     const navigate = useNavigate();
+    const { user } = useContext(AuthContext);
     const [runs, setRuns] = useState<TestRun[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [runStats, setRunStats] = useState<Record<string, any>>({});
     const [loading, setLoading] = useState(true);
     const [isCreationOpen, setCreationOpen] = useState(false);
+    
 
     // Filters
     const [searchTitle, setSearchTitle] = useState('');
-    const [filterStatus, setFilterStatus] = useState<string>('ALL'); // ALL, OPEN, COMPLETED
+    const [filterStatus, setFilterStatus] = useState<string>('OPEN'); 
+    const [filterAssignee, setFilterAssignee] = useState<string>(user?.id || 'ALL');
     const [filterPhase, setFilterPhase] = useState<string>('ALL');
-    const [filterAssignee, setFilterAssignee] = useState<string>('ALL');
+
 
     const loadData = async () => {
         setLoading(true);
