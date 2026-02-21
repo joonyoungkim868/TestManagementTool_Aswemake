@@ -270,6 +270,39 @@ export class RunService {
     return data || [];
   }
 
+  static async getRunStats(openRuns: TestRun[]): Promise<Record<string, { total: number, pass: number, fail: number, block: number, na: number, untested: number }>> {
+    if (openRuns.length === 0) return {};
+    const openRunIds = openRuns.map(r => r.id);
+    const targetDocIds = Array.from(new Set(openRuns.flatMap(r => r.target_document_ids || [])));
+
+    const [casesRes, resultsRes] = await Promise.all([
+      targetDocIds.length > 0 ? supabase.from('testCases').select('id, documentId').in('documentId', targetDocIds) : Promise.resolve({ data: [] }),
+      supabase.from('testResults').select('runId, status').in('runId', openRunIds)
+    ]);
+
+    const cases = casesRes.data || [];
+    const results = resultsRes.data || [];
+
+    const stats: Record<string, any> = {};
+
+    openRuns.forEach(run => {
+      const runDocIds = new Set(run.target_document_ids || []);
+      const runCases = cases.filter(c => runDocIds.has(c.documentId));
+      const runRes = results.filter(r => r.runId === run.id);
+
+      const total = runCases.length;
+      const pass = runRes.filter(r => r.status === 'PASS').length;
+      const fail = runRes.filter(r => r.status === 'FAIL').length;
+      const block = runRes.filter(r => r.status === 'BLOCK').length;
+      const na = runRes.filter(r => r.status === 'NA').length;
+      const untested = Math.max(0, total - (pass + fail + block + na));
+
+      stats[run.id] = { total, pass, fail, block, na, untested };
+    });
+
+    return stats;
+  }
+
   static async getById(id: string): Promise<TestRun | null> {
     const { data, error } = await supabase.from('testRuns').select('*').eq('id', id).single();
     if (error) return null;
@@ -410,13 +443,14 @@ export class DashboardService {
       .in('documentId', targetDocIds);
 
     // Active Runs (Runs that target these docs and are OPEN)
-    // Runs store target_document_ids as JSONB or Array.
-    // If it's an array column: .overlaps()
-    const { count: activeRuns } = await supabase
+    const { data: allOpenRuns } = await supabase
       .from('testRuns')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'OPEN')
-      .overlaps('target_document_ids', targetDocIds);
+      .select('id, target_document_ids')
+      .eq('status', 'OPEN');
+
+    const activeRuns = (allOpenRuns || []).filter(r =>
+      (r.target_document_ids || []).some((id: string) => targetDocIds.includes(id))
+    ).length;
 
     // Defects (Issues in Results linked to these docs)
     // Results -> Run -> target_docs? Or Results -> Case -> Document
@@ -432,14 +466,17 @@ export class DashboardService {
     const defectCount = 0; // Placeholder until we have a defects table or better query
 
     // Pass Rate (from completed runs targeting these docs)
-    // Fetch last 5 completed runs for these docs
-    const { data: recentRuns } = await supabase
+    // Fetch recent completed runs, then filter in JS to avoid JSONB overlap limitation in PostgREST
+    const { data: allRecentRuns } = await supabase
       .from('testRuns')
-      .select('snapshot_data, completedAt')
+      .select('target_document_ids, snapshot_data, completedAt')
       .eq('status', 'COMPLETED')
-      .overlaps('target_document_ids', targetDocIds)
       .order('completedAt', { ascending: false })
-      .limit(10);
+      .limit(100);
+
+    const recentRuns = (allRecentRuns || [])
+      .filter(r => (r.target_document_ids || []).some((id: string) => targetDocIds.includes(id)))
+      .slice(0, 10);
 
     let totalPass = 0;
     let totalExecuted = 0;

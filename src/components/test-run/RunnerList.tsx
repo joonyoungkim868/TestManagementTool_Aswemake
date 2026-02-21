@@ -11,6 +11,7 @@ export const RunnerList = () => {
     const navigate = useNavigate();
     const [runs, setRuns] = useState<TestRun[]>([]);
     const [users, setUsers] = useState<User[]>([]);
+    const [runStats, setRunStats] = useState<Record<string, any>>({});
     const [loading, setLoading] = useState(true);
     const [isCreationOpen, setCreationOpen] = useState(false);
 
@@ -27,8 +28,13 @@ export const RunnerList = () => {
                 RunService.getAll(),
                 AuthService.getAllUsers()
             ]);
+
+            const openRuns = r.filter(run => run.status === 'OPEN');
+            const stats = await RunService.getRunStats(openRuns);
+
             setRuns(r);
             setUsers(u);
+            setRunStats(stats);
         } catch (e) {
             console.error(e);
         } finally {
@@ -59,15 +65,24 @@ export const RunnerList = () => {
         return true;
     });
 
-    // Helper to calculate progress (Placeholder logic - needs real stats if available)
-    // If completed use snapshot_data, else use rough calc or unknown
     const getProgress = (run: TestRun) => {
         if (run.status === 'COMPLETED' && run.snapshot_data) {
-            // Calculate from snapshot if structure known
-            // Assuming snapshot_data has stats or full items
-            return { percent: 100, label: 'Completed' };
+            const results = run.snapshot_data.results || [];
+            const total = run.snapshot_data.cases ? run.snapshot_data.cases.length : results.length;
+            const pass = results.filter((r: any) => r.status === 'PASS').length;
+            const fail = results.filter((r: any) => r.status === 'FAIL').length;
+            const block = results.filter((r: any) => r.status === 'BLOCK').length;
+            const na = results.filter((r: any) => r.status === 'NA').length;
+            const executed = pass + fail + block + na;
+            const percent = total > 0 ? Math.round((executed / total) * 100) : 0;
+            return { percent, label: `${percent}% (${executed}/${total})` };
+        } else if (runStats[run.id]) {
+            const { total, pass, fail, block, na } = runStats[run.id];
+            const executed = pass + fail + block + na;
+            const percent = total > 0 ? Math.round((executed / total) * 100) : 0;
+            return { percent, label: `${percent}% (${executed}/${total})` };
         }
-        return { percent: 0, label: 'In Progress' }; // Needs enhancement
+        return { percent: 0, label: 'Calculating...' };
     };
 
     if (loading) return <LoadingSpinner />;

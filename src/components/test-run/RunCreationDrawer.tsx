@@ -183,18 +183,20 @@ export const RunCreationDrawer = ({ isOpen, onClose, onCreated }: RunCreationDra
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">Phase</label>
                                 <div className="relative">
-                                    <select
-                                        className="w-full border rounded-lg p-2.5 appearance-none bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                    <input
+                                        list="phase-options"
+                                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
                                         value={phase}
                                         onChange={e => setPhase(e.target.value)}
-                                    >
-                                        <option value="Alpha">Alpha</option>
-                                        <option value="Beta">Beta</option>
-                                        <option value="RC">Release Candidate</option>
-                                        <option value="Hotfix">Hotfix</option>
-                                        <option value="Gold">Gold</option>
-                                    </select>
-                                    <ChevronDown size={14} className="absolute right-3 top-3.5 text-gray-400 pointer-events-none" />
+                                        placeholder="Select or type..."
+                                    />
+                                    <datalist id="phase-options">
+                                        <option value="Alpha" />
+                                        <option value="Beta" />
+                                        <option value="RC" />
+                                        <option value="Hotfix" />
+                                        <option value="Gold" />
+                                    </datalist>
                                 </div>
                             </div>
                             <div>
