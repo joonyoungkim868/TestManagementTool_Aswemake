@@ -262,6 +262,49 @@ export class TestCaseService {
   static async deleteCase(caseId: string): Promise<void> {
     await supabase.from('testCases').delete().eq('id', caseId);
   }
+
+  static async importCases(documentId: string, cases: any[], user: User) {
+    // 1. 기존 섹션(폴더) 조회
+    const existingSections = await TestCaseService.getSections(documentId);
+    const sectionMap = new Map<string, string>();
+    existingSections.forEach(s => sectionMap.set(s.title, s.id));
+
+    // 2. CSV 데이터에서 유니크한 섹션 이름 추출
+    const uniqueSectionTitles = Array.from(new Set(cases.map(c => c.sectionTitle || 'Uncategorized')));
+
+    // 3. 존재하지 않는 섹션은 DB에 새로 생성 후 Map에 매핑
+    for (const title of uniqueSectionTitles) {
+      if (!sectionMap.has(title)) {
+        const newSec = await TestCaseService.createSection({ documentId, title });
+        if (newSec) sectionMap.set(title, newSec.id);
+      }
+    }
+
+    // 4. DB 스키마에 맞게 삽입할 케이스 데이터 매핑
+    const newCases = cases.map(c => ({
+      documentId: documentId,
+      sectionId: sectionMap.get(c.sectionTitle || 'Uncategorized')!,
+      title: c.title,
+      precondition: c.precondition || '',
+      steps: c.steps || [],
+      priority: c.priority || 'MEDIUM',
+      type: c.type || 'FUNCTIONAL',
+      note: c.note || '',
+      platform_type: c.platform_type || 'WEB',
+      authorId: user.id,
+      createdAt: now(),
+      updatedAt: now()
+    }));
+
+    // 5. Supabase에 대량 삽입 (Bulk Insert)
+    if (newCases.length > 0) {
+      const { error } = await supabase.from('testCases').insert(newCases);
+      if (error) {
+        console.error("Import Error:", error);
+        throw error;
+      }
+    }
+  }
 }
 
 export class RunService {
