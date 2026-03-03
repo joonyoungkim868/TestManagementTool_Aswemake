@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart2, XCircle, FileText, Bug, ExternalLink } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
-import { Project, TestRun, TestResult, Issue } from '../../types';
+import { TestRun, TestResult, Issue, TestCase, TestStatus } from '../../types';
 import { RunService, TestCaseService } from '../../storage';
 
 export const ReportModal = ({
-    isOpen, onClose, project
+    isOpen, onClose, runId
 }: {
-    isOpen: boolean, onClose: () => void, project: Project
+    isOpen: boolean, onClose: () => void, runId?: string
 }) => {
     const [runs, setRuns] = useState<TestRun[]>([]);
     const [selectedRunId, setSelectedRunId] = useState<string>('');
@@ -17,44 +17,83 @@ export const ReportModal = ({
         pass: number,
         fail: number,
         untested: number,
+        block: number,
+        na: number,
         allDefects: { issue: Issue, caseTitle: string }[]
     } | null>(null);
 
     useEffect(() => {
         if (isOpen) {
-            RunService.getAll(project.id).then(setRuns);
-            setSelectedRunId('');
+            if (runId) {
+                setSelectedRunId(runId);
+            } else {
+                RunService.getAll().then(setRuns);
+                setSelectedRunId('');
+            }
             setReportData(null);
         }
-    }, [isOpen, project]);
+    }, [isOpen, runId]);
 
     useEffect(() => {
-        if (selectedRunId) {
-            const run = runs.find(r => r.id === selectedRunId);
-            if (run) {
-                Promise.all([
+        if (!selectedRunId) return;
+
+        RunService.getById(selectedRunId).then(async (run) => {
+            if (!run) return;
+
+            let results: TestResult[] = [];
+            let cases: TestCase[] = [];
+
+            if (run.status === 'COMPLETED' && run.snapshot_data) {
+                results = run.snapshot_data.results || [];
+                cases = run.snapshot_data.cases || [];
+            } else {
+                const targetDocIds = run.target_document_ids || [];
+                [results, cases] = await Promise.all([
                     RunService.getResults(run.id),
-                    TestCaseService.getCases(project.id)
-                ]).then(([results, cases]) => {
-                    const pass = results.filter(r => r.status === 'PASS').length;
-                    const fail = results.filter(r => r.status === 'FAIL').length;
-                    const untested = (run.caseIds?.length || 0) - results.length;
-
-                    const allDefects: { issue: Issue, caseTitle: string }[] = [];
-                    const caseMap = new Map(cases.map(c => [c.id, c.title]));
-
-                    results.forEach(res => {
-                        if (res.issues && res.issues.length > 0) {
-                            res.issues.forEach(issue => {
-                                allDefects.push({ issue, caseTitle: caseMap.get(res.caseId) || 'Unknown Case' });
-                            });
-                        }
-                    });
-                    setReportData({ run, results, pass, fail, untested, allDefects });
-                });
+                    targetDocIds.length > 0 ? TestCaseService.getCasesByDocumentIds(targetDocIds) : Promise.resolve([])
+                ]);
             }
-        }
-    }, [selectedRunId, runs, project]);
+
+            let pass = 0, fail = 0, block = 0, na = 0;
+            cases.forEach(c => {
+                const caseResults = results.filter(r => r.caseId === c.id);
+                let finalStatus: TestStatus = 'UNTESTED';
+
+                if (c.platform_type === 'APP') {
+                    const iosRes = caseResults.find(r => r.device_platform === 'iOS');
+                    const aosRes = caseResults.find(r => r.device_platform === 'Android');
+                    if (iosRes?.status === 'FAIL' || aosRes?.status === 'FAIL') finalStatus = 'FAIL';
+                    else if (iosRes?.status === 'BLOCK' || aosRes?.status === 'BLOCK') finalStatus = 'BLOCK';
+                    else if (iosRes?.status === 'NA' || aosRes?.status === 'NA') finalStatus = 'NA';
+                    else if (iosRes?.status === 'PASS' && aosRes?.status === 'PASS') finalStatus = 'PASS';
+                    else finalStatus = iosRes?.status || aosRes?.status || 'UNTESTED';
+                } else {
+                    const pcRes = caseResults.find(r => !r.device_platform || r.device_platform === 'PC');
+                    finalStatus = pcRes?.status || 'UNTESTED';
+                }
+
+                if (finalStatus === 'PASS') pass++;
+                else if (finalStatus === 'FAIL') fail++;
+                else if (finalStatus === 'BLOCK') block++;
+                else if (finalStatus === 'NA') na++;
+            });
+
+            const untested = cases.length - (pass + fail + block + na);
+
+            const allDefects: { issue: Issue, caseTitle: string }[] = [];
+            const caseMap = new Map(cases.map(c => [c.id, c.title]));
+
+            results.forEach(res => {
+                if (res.issues && res.issues.length > 0) {
+                    res.issues.forEach(issue => {
+                        allDefects.push({ issue, caseTitle: caseMap.get(res.caseId) || 'Unknown Case' });
+                    });
+                }
+            });
+
+            setReportData({ run, results, pass, fail, block, na, untested, allDefects });
+        });
+    }, [selectedRunId]);
 
     if (!isOpen) return null;
 
@@ -66,21 +105,23 @@ export const ReportModal = ({
                     <button onClick={onClose}><XCircle size={20} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-8">
-                    <div className="mb-8">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">분석할 실행(Run) 선택</label>
-                        <select className="w-full border rounded p-2 text-lg" value={selectedRunId} onChange={e => setSelectedRunId(e.target.value)}>
-                            <option value="">-- 테스트 실행 선택 --</option>
-                            {runs.map(r => (
-                                <option key={r.id} value={r.id}>{r.title} ({new Date(r.createdAt).toLocaleDateString()})</option>
-                            ))}
-                        </select>
-                    </div>
+                    {!runId && (
+                        <div className="mb-8">
+                            <label className="block text-sm font-bold text-gray-700 mb-2">분석할 실행(Run) 선택</label>
+                            <select className="w-full border rounded p-2 text-lg" value={selectedRunId} onChange={e => setSelectedRunId(e.target.value)}>
+                                <option value="">-- 테스트 실행 선택 --</option>
+                                {runs.map(r => (
+                                    <option key={r.id} value={r.id}>{r.title} ({new Date(r.createdAt).toLocaleDateString()})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     {reportData ? (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div className="grid grid-cols-4 gap-4">
                                 <div className="bg-blue-50 p-4 rounded border border-blue-100 text-center">
                                     <div className="text-sm text-blue-600 font-semibold uppercase">Total Cases</div>
-                                    <div className="text-3xl font-bold text-blue-900">{reportData.run.caseIds?.length || 0}</div>
+                                    <div className="text-3xl font-bold text-blue-900">{reportData.pass + reportData.fail + reportData.block + reportData.na + reportData.untested}</div>
                                 </div>
                                 <div className="bg-green-50 p-4 rounded border border-green-100 text-center">
                                     <div className="text-sm text-green-600 font-semibold uppercase">Passed</div>
@@ -104,6 +145,8 @@ export const ReportModal = ({
                                                 data={[
                                                     { name: 'Pass', value: reportData.pass, fill: '#22c55e' },
                                                     { name: 'Fail', value: reportData.fail, fill: '#ef4444' },
+                                                    { name: 'Block', value: reportData.block, fill: '#1f2937' },
+                                                    { name: 'NA', value: reportData.na, fill: '#fb923c' },
                                                     { name: 'Untested', value: reportData.untested, fill: '#e5e7eb' }
                                                 ]}
                                                 innerRadius={60}
@@ -113,6 +156,8 @@ export const ReportModal = ({
                                             >
                                                 <Cell fill="#22c55e" />
                                                 <Cell fill="#ef4444" />
+                                                <Cell fill="#1f2937" />
+                                                <Cell fill="#fb923c" />
                                                 <Cell fill="#e5e7eb" />
                                             </Pie>
                                             <Tooltip />
