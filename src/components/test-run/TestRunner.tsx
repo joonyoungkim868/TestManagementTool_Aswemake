@@ -45,7 +45,10 @@ const DashboardStats = React.memo(({ stats, isDashboardOpen }: { stats: any, isD
                             </Pie>
                         </PieChart>
                     </ResponsiveContainer>
-                    <div className="absolute inset-0 flex items-center justify-center font-bold text-gray-600 text-xs">{Math.round((stats.pass / (stats.total || 1)) * 100) || 0}%</div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center font-bold text-gray-600 text-xs">
+                        <span>{Math.round(((stats.total - stats.untested) / (stats.total || 1)) * 100) || 0}%</span>
+                        <span className="text-gray-400 font-normal">Done</span>
+                    </div>
                 </div>
                 <div className="grid grid-cols-5 gap-4">
                     <div className="p-3 bg-green-50 rounded border border-green-100 w-24 text-center"><div className="text-xs font-bold text-green-700">Pass</div><div className="text-xl font-bold text-green-800">{stats.pass}</div></div>
@@ -234,7 +237,39 @@ const BottomResultPane = ({
                         onBlur={onSave}
                     />
                 </div>
-                {/* Defect fields can be added here similar to existing logic */}
+                {status === 'FAIL' && (
+                    <div className="mt-4 pt-4 border-t border-red-100">
+                        <label className="text-sm font-semibold text-red-600 flex items-center gap-1 mb-2">
+                            <Bug size={14} /> 결함 (Defects)
+                        </label>
+                        <div className="flex gap-2 items-center bg-red-50 p-2 rounded border border-red-100">
+                            <input
+                                disabled={disabled}
+                                className="border rounded px-2 py-1.5 flex-1 text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 outline-none disabled:bg-gray-100"
+                                placeholder="이슈 제목 (예: QA-123 로그인 버튼 겹침)"
+                                value={defectLabel}
+                                onChange={e => onUpdate('issues', [{
+                                    id: data.issues?.[0]?.id || Date.now().toString(),
+                                    label: e.target.value,
+                                    url: defectUrl
+                                }])}
+                                onBlur={onSave}
+                            />
+                            <input
+                                disabled={disabled}
+                                className="border rounded px-2 py-1.5 flex-1 text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 outline-none disabled:bg-gray-100"
+                                placeholder="이슈 URL (옵션)"
+                                value={defectUrl}
+                                onChange={e => onUpdate('issues', [{
+                                    id: data.issues?.[0]?.id || Date.now().toString(),
+                                    label: defectLabel,
+                                    url: e.target.value
+                                }])}
+                                onBlur={onSave}
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="border-t bg-gray-50">
@@ -442,13 +477,35 @@ export const TestRunner = () => {
     // Stats
     const stats = useMemo(() => {
         const total = runCases.length;
-        const pass = runResults.filter(r => r.status === 'PASS').length;
-        const fail = runResults.filter(r => r.status === 'FAIL').length;
-        const block = runResults.filter(r => r.status === 'BLOCK').length;
-        const na = runResults.filter(r => r.status === 'NA').length;
+        let pass = 0, fail = 0, block = 0, na = 0;
+
+        runCases.forEach(c => {
+            const caseResults = runResults.filter(r => r.caseId === c.id);
+            let finalStatus: TestStatus = 'UNTESTED';
+
+            if (c.platform_type === 'APP') {
+                const iosRes = caseResults.find(r => r.device_platform === 'iOS');
+                const aosRes = caseResults.find(r => r.device_platform === 'Android');
+
+                if (iosRes?.status === 'FAIL' || aosRes?.status === 'FAIL') finalStatus = 'FAIL';
+                else if (iosRes?.status === 'BLOCK' || aosRes?.status === 'BLOCK') finalStatus = 'BLOCK';
+                else if (iosRes?.status === 'NA' || aosRes?.status === 'NA') finalStatus = 'NA';
+                else if (iosRes?.status === 'PASS' && aosRes?.status === 'PASS') finalStatus = 'PASS';
+                else finalStatus = iosRes?.status || aosRes?.status || 'UNTESTED';
+            } else {
+                const pcRes = caseResults.find(r => !r.device_platform || r.device_platform === 'PC');
+                finalStatus = pcRes?.status || 'UNTESTED';
+            }
+
+            if (finalStatus === 'PASS') pass++;
+            else if (finalStatus === 'FAIL') fail++;
+            else if (finalStatus === 'BLOCK') block++;
+            else if (finalStatus === 'NA') na++;
+        });
+
         const untested = total - (pass + fail + block + na);
         return { total, pass, fail, block, na, untested };
-    }, [runCases.length, runResults]);
+    }, [runCases, runResults]);
 
     if (loading) return <LoadingSpinner />;
     if (!run) return <div>Run not found</div>;
