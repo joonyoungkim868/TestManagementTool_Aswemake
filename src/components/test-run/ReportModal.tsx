@@ -148,7 +148,7 @@ export const ReportModal = ({
                                                     { name: 'Block', value: reportData.block, fill: '#1f2937' },
                                                     { name: 'NA', value: reportData.na, fill: '#fb923c' },
                                                     { name: 'Untested', value: reportData.untested, fill: '#e5e7eb' }
-                                                ]}
+                                                ].filter(d => d.value > 0)}
                                                 innerRadius={60}
                                                 outerRadius={80}
                                                 paddingAngle={5}

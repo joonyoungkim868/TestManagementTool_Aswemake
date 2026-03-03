@@ -334,10 +334,31 @@ export class RunService {
       const runRes = results.filter(r => r.runId === run.id);
 
       const total = runCases.length;
-      const pass = runRes.filter(r => r.status === 'PASS').length;
-      const fail = runRes.filter(r => r.status === 'FAIL').length;
-      const block = runRes.filter(r => r.status === 'BLOCK').length;
-      const na = runRes.filter(r => r.status === 'NA').length;
+      let pass = 0, fail = 0, block = 0, na = 0;
+
+      runCases.forEach(c => {
+        const cRes = runRes.filter(r => r.caseId === c.id);
+        let fStatus: TestStatus = 'UNTESTED';
+
+        if (c.platform_type === 'APP') {
+          const iStat = cRes.find(r => r.device_platform === 'iOS')?.status;
+          const aStat = cRes.find(r => r.device_platform === 'Android')?.status;
+
+          if (iStat === 'FAIL' || aStat === 'FAIL') fStatus = 'FAIL';
+          else if (iStat === 'BLOCK' || aStat === 'BLOCK') fStatus = 'BLOCK';
+          else if (iStat === 'NA' || aStat === 'NA') fStatus = 'NA';
+          else if (iStat === 'PASS' && aStat === 'PASS') fStatus = 'PASS';
+          else fStatus = 'UNTESTED';
+        } else {
+          fStatus = cRes.find(r => !r.device_platform || r.device_platform === 'PC')?.status || 'UNTESTED';
+        }
+
+        if (fStatus === 'PASS') pass++;
+        else if (fStatus === 'FAIL') fail++;
+        else if (fStatus === 'BLOCK') block++;
+        else if (fStatus === 'NA') na++;
+      });
+
       const untested = Math.max(0, total - (pass + fail + block + na));
 
       stats[run.id] = { total, pass, fail, block, na, untested };
@@ -374,7 +395,7 @@ export class RunService {
   static async delete(runId: string): Promise<void> {
     // 1. 하위 데이터(테스트 결과)를 먼저 삭제하여 409 Conflict 방지
     await supabase.from('testResults').delete().eq('runId', runId);
-    
+
     // 2. 그 다음 실행 계획 본체 삭제
     await supabase.from('testRuns').delete().eq('id', runId);
   }
