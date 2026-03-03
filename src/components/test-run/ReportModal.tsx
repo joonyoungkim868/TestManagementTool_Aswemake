@@ -66,7 +66,7 @@ export const ReportModal = ({
                     else if (iosRes?.status === 'BLOCK' || aosRes?.status === 'BLOCK') finalStatus = 'BLOCK';
                     else if (iosRes?.status === 'NA' || aosRes?.status === 'NA') finalStatus = 'NA';
                     else if (iosRes?.status === 'PASS' && aosRes?.status === 'PASS') finalStatus = 'PASS';
-                    else finalStatus = iosRes?.status || aosRes?.status || 'UNTESTED';
+                    else finalStatus = 'UNTESTED';
                 } else {
                     const pcRes = caseResults.find(r => !r.device_platform || r.device_platform === 'PC');
                     finalStatus = pcRes?.status || 'UNTESTED';
