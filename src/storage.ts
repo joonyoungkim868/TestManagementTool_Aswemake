@@ -319,8 +319,12 @@ export class RunService {
     const targetDocIds = Array.from(new Set(openRuns.flatMap(r => r.target_document_ids || [])));
 
     const [casesRes, resultsRes] = await Promise.all([
-      targetDocIds.length > 0 ? supabase.from('testCases').select('id, documentId').in('documentId', targetDocIds) : Promise.resolve({ data: [] }),
-      supabase.from('testResults').select('runId, status').in('runId', openRunIds)
+      targetDocIds.length > 0
+        // 💡 [수정 1] 조회를 위해 platform_type 명시적 추가
+        ? supabase.from('testCases').select('id, documentId, platform_type').in('documentId', targetDocIds)
+        : Promise.resolve({ data: [] }),
+      // 💡 [수정 2] 조회를 위해 caseId, device_platform 명시적 추가
+      supabase.from('testResults').select('runId, caseId, status, device_platform').in('runId', openRunIds)
     ]);
 
     const cases = casesRes.data || [];
@@ -336,19 +340,20 @@ export class RunService {
       const total = runCases.length;
       let pass = 0, fail = 0, block = 0, na = 0;
 
+      // 💡 [수정 3] 결과(Result) 행 단순 덧셈이 아닌 케이스(Case) 단위 순회
       runCases.forEach(c => {
         const cRes = runRes.filter(r => r.caseId === c.id);
         let fStatus: TestStatus = 'UNTESTED';
 
         if (c.platform_type === 'APP') {
-          const iStat = cRes.find(r => r.device_platform === 'iOS')?.status;
-          const aStat = cRes.find(r => r.device_platform === 'Android')?.status;
+          const iStat = cRes.find(r => r.device_platform === 'iOS')?.status || 'UNTESTED';
+          const aStat = cRes.find(r => r.device_platform === 'Android')?.status || 'UNTESTED';
 
-          if (iStat === 'FAIL' || aStat === 'FAIL') fStatus = 'FAIL';
+          if (iStat === 'UNTESTED' || aStat === 'UNTESTED') fStatus = 'UNTESTED';
+          else if (iStat === 'FAIL' || aStat === 'FAIL') fStatus = 'FAIL';
           else if (iStat === 'BLOCK' || aStat === 'BLOCK') fStatus = 'BLOCK';
           else if (iStat === 'NA' || aStat === 'NA') fStatus = 'NA';
-          else if (iStat === 'PASS' && aStat === 'PASS') fStatus = 'PASS';
-          else fStatus = 'UNTESTED';
+          else fStatus = 'PASS';
         } else {
           fStatus = cRes.find(r => !r.device_platform || r.device_platform === 'PC')?.status || 'UNTESTED';
         }
@@ -360,7 +365,6 @@ export class RunService {
       });
 
       const untested = Math.max(0, total - (pass + fail + block + na));
-
       stats[run.id] = { total, pass, fail, block, na, untested };
     });
 
