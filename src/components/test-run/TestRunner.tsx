@@ -38,7 +38,7 @@ const DashboardStats = React.memo(({ stats, isDashboardOpen }: { stats: any, isD
                                 { name: 'Block', value: stats.block, fill: '#1f2937' },
                                 { name: 'NA', value: stats.na, fill: '#fb923c' },
                                 { name: 'Untested', value: stats.untested, fill: '#e5e7eb' }
-                            ]}
+                            ].filter(d => d.value > 0)}
                                 innerRadius={25} outerRadius={40} paddingAngle={2} dataKey="value"
                             >
                                 <Cell fill="#22c55e" /><Cell fill="#ef4444" /><Cell fill="#1f2937" /><Cell fill="#fb923c" /><Cell fill="#e5e7eb" />
