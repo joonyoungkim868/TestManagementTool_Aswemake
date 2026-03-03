@@ -97,7 +97,7 @@ const CaseSidebar = React.memo(({ runCases, runResults, activeCaseIndex, onSelec
                             else if (cIosRes?.status === 'BLOCK' || cAosRes?.status === 'BLOCK') status = 'BLOCK';
                             else if (cIosRes?.status === 'NA' || cAosRes?.status === 'NA') status = 'NA';
                             else if (cIosRes?.status === 'PASS' && cAosRes?.status === 'PASS') status = 'PASS';
-                            else status = cIosRes?.status || cAosRes?.status || 'UNTESTED';
+                            else status = 'UNTESTED';
                         } else {
                             status = cPcRes?.status || 'UNTESTED';
                         }
@@ -306,6 +306,7 @@ export const TestRunner = () => {
 
     const [activeCaseIndex, setActiveCaseIndex] = useState(0);
     const [isDashboardOpen, setDashboardOpen] = useState(true);
+    const [isReportOpen, setReportOpen] = useState(false);
 
     // Local State for Active Case
     const [pcResult, setPcResult] = useState<Partial<TestResult>>({});
@@ -491,7 +492,7 @@ export const TestRunner = () => {
                 else if (iosRes?.status === 'BLOCK' || aosRes?.status === 'BLOCK') finalStatus = 'BLOCK';
                 else if (iosRes?.status === 'NA' || aosRes?.status === 'NA') finalStatus = 'NA';
                 else if (iosRes?.status === 'PASS' && aosRes?.status === 'PASS') finalStatus = 'PASS';
-                else finalStatus = iosRes?.status || aosRes?.status || 'UNTESTED';
+                else finalStatus = 'UNTESTED';
             } else {
                 const pcRes = caseResults.find(r => !r.device_platform || r.device_platform === 'PC');
                 finalStatus = pcRes?.status || 'UNTESTED';
@@ -544,6 +545,9 @@ export const TestRunner = () => {
                 </div>
 
                 <div className="flex gap-2">
+                    <button onClick={() => setReportOpen(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold shadow hover:bg-blue-700 flex items-center gap-2">
+                        <BarChart2 size={18} /> 리포트 보기
+                    </button>
                     {!isReadOnly && (
                         <button onClick={handleFinishRun} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold shadow hover:bg-green-700 flex items-center gap-2">
                             <Save size={18} /> Finish Run
@@ -687,6 +691,9 @@ export const TestRunner = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Report Modal Integration */}
+            <ReportModal isOpen={isReportOpen} onClose={() => setReportOpen(false)} runId={run.id} />
         </div>
     );
 };
